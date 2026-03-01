@@ -20,6 +20,7 @@ copy .env.example .env
 ```
 
 Điền `OPENAI_API_KEY` vào `.env`.
+Điền thêm `TAVILY_API_KEY` vào `.env` để dùng web search.
 
 ## 3) Chạy
 
@@ -72,6 +73,6 @@ python src/telegram_bot.py
 
 ## Gợi ý mở rộng
 
-- Thay `DuckDuckGoSearchRun` bằng tool riêng (Tavily, SerpAPI, internal search)
+- Thay Tavily bằng tool riêng (SerpAPI, internal search)
 - Lưu `artifacts` xuống file JSON để audit
 - Bổ sung guardrails và chấm điểm chất lượng câu trả lời

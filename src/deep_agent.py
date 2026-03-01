@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from typing import List
 
-from langchain_community.tools import DuckDuckGoSearchRun
+from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
@@ -24,8 +25,11 @@ class Artifact:
 
 class DeepResearchAgent:
     def __init__(self, model_name: str = "gpt-4o-mini", temperature: float = 0.0) -> None:
+        if not os.getenv("TAVILY_API_KEY"):
+            raise RuntimeError("Thiếu TAVILY_API_KEY. Hãy tạo file .env từ .env.example")
+
         self.model = ChatOpenAI(model=model_name, temperature=temperature)
-        self.tools = [DuckDuckGoSearchRun()]
+        self.tools = [TavilySearchResults(max_results=5)]
         self.react_agent = create_react_agent(self.model, self.tools)
 
     def _plan(self, question: str, max_subquestions: int) -> ResearchPlan:
