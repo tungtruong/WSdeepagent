@@ -51,6 +51,18 @@ python src/telegram_bot.py
 /ask Phân tích cơ hội ứng dụng AI agent cho cửa hàng online nhỏ trong 2026
 ```
 
+## 5) Cài nhanh trên Arch Linux (service)
+
+```bash
+chmod +x scripts/install_arch_service.sh
+./scripts/install_arch_service.sh
+```
+
+Sau khi chạy script:
+- Kiểm tra trạng thái: `sudo systemctl status wsdeepagent.service`
+- Xem log: `journalctl -u wsdeepagent.service -f`
+- Nếu vừa tạo `.env`, hãy điền key rồi restart: `sudo systemctl restart wsdeepagent.service`
+
 ### Session memory theo từng user/chat
 
 - Bot tự nhớ lịch sử hội thoại theo từng `chat_id` và dùng làm ngữ cảnh cho câu hỏi mới.
