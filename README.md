@@ -91,6 +91,11 @@ Script sẽ tự pull `main`, update dependencies và restart `wsdeepagent.servi
 - Nội dung notify gồm trạng thái restart và model đang dùng.
 - Nếu để trống `TELEGRAM_NOTIFY_CHAT_IDS`, bot sẽ fallback gửi vào các ID trong `TELEGRAM_WHITELIST_IDS` (nếu có).
 
+### Progress report theo nhịp thời gian
+
+- Bot gửi tiến trình research theo nhịp `TELEGRAM_PROGRESS_INTERVAL_SECONDS` (mặc định `10` giây).
+- Mỗi nhịp chỉ gửi trạng thái mới nhất để tránh spam tin nhắn.
+
 ## Cấu trúc
 
 - `src/deep_agent.py`: logic deep agent

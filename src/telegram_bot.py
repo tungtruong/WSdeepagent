@@ -211,19 +211,39 @@ async def handle_query(
     memory_store: Dict[str, List[Dict[str, str]]] = context.application.bot_data["memory_store"]
     memory_file: str = context.application.bot_data["memory_file"]
     memory_turns: int = context.application.bot_data["memory_turns"]
+    progress_interval_seconds: int = context.application.bot_data["progress_interval_seconds"]
     chat_id = update.effective_chat.id
     chat_key = str(chat_id)
     chat_memory = memory_store.setdefault(chat_key, [])
     contextual_query = build_contextual_query(query, chat_memory)
     loop = asyncio.get_running_loop()
+    progress_state = {"latest": None, "sent": None, "done": False}
 
     await update.message.reply_text("Đang research, có thể mất 30-120 giây tuỳ câu hỏi...")
     await update.message.chat.send_action(action=ChatAction.TYPING)
 
+    async def periodic_progress_sender() -> None:
+        while not progress_state["done"]:
+            await asyncio.sleep(progress_interval_seconds)
+            latest = progress_state["latest"]
+            if latest and latest != progress_state["sent"]:
+                await update.message.reply_text(latest)
+                progress_state["sent"] = latest
+
+        latest = progress_state["latest"]
+        if latest and latest != progress_state["sent"]:
+            await update.message.reply_text(latest)
+            progress_state["sent"] = latest
+
+    reporter_task = asyncio.create_task(periodic_progress_sender())
+
+    def set_latest_progress(message: str) -> None:
+        progress_state["latest"] = message
+
     def progress_callback(message: str) -> None:
-        asyncio.run_coroutine_threadsafe(
-            update.message.reply_text(message),
-            loop,
+        loop.call_soon_threadsafe(
+            set_latest_progress,
+            message,
         )
 
     try:
@@ -234,8 +254,14 @@ async def handle_query(
             progress_callback,
         )
     except Exception as exc:
+        progress_state["done"] = True
+        await reporter_task
         await update.message.reply_text(f"Có lỗi khi research: {exc}")
         return
+    finally:
+        progress_state["done"] = True
+
+    await reporter_task
 
     answer = result.get("final_answer", "Không có kết quả.")
     chat_memory.append({"user": query, "assistant": answer})
@@ -288,6 +314,7 @@ def main() -> None:
     max_subquestions = int(os.getenv("MAX_SUBQUESTIONS", "4"))
     memory_turns = int(os.getenv("MEMORY_TURNS", "3"))
     memory_file = os.getenv("MEMORY_STORE_FILE", "data/memory_store.json")
+    progress_interval_seconds = int(os.getenv("TELEGRAM_PROGRESS_INTERVAL_SECONDS", "10"))
     whitelist_ids = parse_whitelist_ids(os.getenv("TELEGRAM_WHITELIST_IDS"))
     notify_chat_ids = parse_chat_ids(os.getenv("TELEGRAM_NOTIFY_CHAT_IDS"))
     if not notify_chat_ids and whitelist_ids:
@@ -302,6 +329,7 @@ def main() -> None:
     app.bot_data["memory_store"] = load_memory_store(memory_file)
     app.bot_data["whitelist_ids"] = whitelist_ids
     app.bot_data["notify_chat_ids"] = notify_chat_ids
+    app.bot_data["progress_interval_seconds"] = max(3, progress_interval_seconds)
 
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("help", help_command))
