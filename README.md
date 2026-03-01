@@ -85,6 +85,12 @@ Script sẽ tự pull `main`, update dependencies và restart `wsdeepagent.servi
 - Ví dụ: `TELEGRAM_WHITELIST_IDS=123456789,987654321`
 - Để trống biến này nếu muốn cho phép tất cả user.
 
+### Startup notify khi restart service
+
+- Đặt `TELEGRAM_NOTIFY_CHAT_IDS` (danh sách chat id, cách nhau dấu phẩy) để bot tự nhắn khi vừa khởi động lại.
+- Nội dung notify gồm trạng thái restart và model đang dùng.
+- Nếu để trống `TELEGRAM_NOTIFY_CHAT_IDS`, bot sẽ fallback gửi vào các ID trong `TELEGRAM_WHITELIST_IDS` (nếu có).
+
 ## Cấu trúc
 
 - `src/deep_agent.py`: logic deep agent

@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 from pathlib import Path
+from datetime import datetime, timezone
 from typing import Dict, List, Set
 
 from dotenv import load_dotenv
@@ -73,6 +74,23 @@ def parse_whitelist_ids(raw_ids: str | None) -> Set[int]:
             continue
 
     return whitelist
+
+
+def parse_chat_ids(raw_ids: str | None) -> List[int]:
+    if not raw_ids:
+        return []
+
+    chat_ids: List[int] = []
+    for value in raw_ids.split(","):
+        item = value.strip()
+        if not item:
+            continue
+        try:
+            chat_ids.append(int(item))
+        except ValueError:
+            continue
+
+    return chat_ids
 
 
 def split_message(text: str, max_len: int = TELEGRAM_MESSAGE_LIMIT) -> List[str]:
@@ -227,6 +245,27 @@ async def handle_query(
             await update.message.reply_text(chunk)
 
 
+async def notify_startup(application: Application) -> None:
+    notify_chat_ids: List[int] = application.bot_data["notify_chat_ids"]
+    model_name: str = application.bot_data["model_name"]
+
+    if not notify_chat_ids:
+        return
+
+    started_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    message = (
+        "✅ WSDeepAgent vừa restart thành công.\n"
+        f"Model đang dùng: {model_name}\n"
+        f"Started at: {started_at}"
+    )
+
+    for chat_id in notify_chat_ids:
+        try:
+            await application.bot.send_message(chat_id=chat_id, text=message)
+        except Exception:
+            continue
+
+
 def main() -> None:
     load_dotenv()
 
@@ -242,14 +281,19 @@ def main() -> None:
     memory_turns = int(os.getenv("MEMORY_TURNS", "3"))
     memory_file = os.getenv("MEMORY_STORE_FILE", "data/memory_store.json")
     whitelist_ids = parse_whitelist_ids(os.getenv("TELEGRAM_WHITELIST_IDS"))
+    notify_chat_ids = parse_chat_ids(os.getenv("TELEGRAM_NOTIFY_CHAT_IDS"))
+    if not notify_chat_ids and whitelist_ids:
+        notify_chat_ids = sorted(list(whitelist_ids))
 
-    app = Application.builder().token(token).build()
+    app = Application.builder().token(token).post_init(notify_startup).build()
     app.bot_data["deep_agent"] = DeepResearchAgent(model_name=model_name)
+    app.bot_data["model_name"] = model_name
     app.bot_data["max_subquestions"] = max_subquestions
     app.bot_data["memory_turns"] = memory_turns
     app.bot_data["memory_file"] = memory_file
     app.bot_data["memory_store"] = load_memory_store(memory_file)
     app.bot_data["whitelist_ids"] = whitelist_ids
+    app.bot_data["notify_chat_ids"] = notify_chat_ids
 
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("help", help_command))
