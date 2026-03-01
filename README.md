@@ -63,6 +63,15 @@ Sau khi chạy script:
 - Xem log: `journalctl -u wsdeepagent.service -f`
 - Nếu vừa tạo `.env`, hãy điền key rồi restart: `sudo systemctl restart wsdeepagent.service`
 
+## 6) Update service trên Arch Linux
+
+```bash
+chmod +x scripts/update_service.sh
+./scripts/update_service.sh
+```
+
+Script sẽ tự pull `main`, update dependencies và restart `wsdeepagent.service`.
+
 ### Session memory theo từng user/chat
 
 - Bot tự nhớ lịch sử hội thoại theo từng `chat_id` và dùng làm ngữ cảnh cho câu hỏi mới.
