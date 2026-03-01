@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import os
 from typing import List
 
-from langchain_community.tools.tavily_search import TavilySearchResults
+from langchain_tavily import TavilySearch
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
@@ -29,7 +29,7 @@ class DeepResearchAgent:
             raise RuntimeError("Thiếu TAVILY_API_KEY. Hãy tạo file .env từ .env.example")
 
         self.model = ChatOpenAI(model=model_name, temperature=temperature)
-        self.tools = [TavilySearchResults(max_results=5)]
+        self.tools = [TavilySearch(max_results=5)]
         self.react_agent = create_react_agent(self.model, self.tools)
 
     def _plan(self, question: str, max_subquestions: int) -> ResearchPlan:
