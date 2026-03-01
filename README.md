@@ -21,6 +21,7 @@ copy .env.example .env
 
 Điền `OPENAI_API_KEY` vào `.env`.
 Điền thêm `TAVILY_API_KEY` vào `.env` để dùng web search.
+Project hiện dùng package `langchain-tavily` cho phần Tavily search.
 
 ## 3) Chạy
 
