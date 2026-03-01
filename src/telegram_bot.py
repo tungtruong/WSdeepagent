@@ -215,15 +215,23 @@ async def handle_query(
     chat_key = str(chat_id)
     chat_memory = memory_store.setdefault(chat_key, [])
     contextual_query = build_contextual_query(query, chat_memory)
+    loop = asyncio.get_running_loop()
 
     await update.message.reply_text("Đang research, có thể mất 30-120 giây tuỳ câu hỏi...")
     await update.message.chat.send_action(action=ChatAction.TYPING)
+
+    def progress_callback(message: str) -> None:
+        asyncio.run_coroutine_threadsafe(
+            update.message.reply_text(message),
+            loop,
+        )
 
     try:
         result = await asyncio.to_thread(
             agent.run,
             contextual_query,
             max_subquestions,
+            progress_callback,
         )
     except Exception as exc:
         await update.message.reply_text(f"Có lỗi khi research: {exc}")

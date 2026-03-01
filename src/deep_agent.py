@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
-from typing import List
+from typing import Callable, List
 
 from langchain_tavily import TavilySearch
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -139,23 +139,60 @@ class DeepResearchAgent:
             [SystemMessage(content=system), HumanMessage(content=user)]
         ).content
 
-    def run(self, question: str, max_subquestions: int = 5) -> dict:
+    @staticmethod
+    def _notify(progress_callback: Callable[[str], None] | None, message: str) -> None:
+        if progress_callback is None:
+            return
+        try:
+            progress_callback(message)
+        except Exception:
+            return
+
+    def run(
+        self,
+        question: str,
+        max_subquestions: int = 5,
+        progress_callback: Callable[[str], None] | None = None,
+    ) -> dict:
         selected_subquestions, recursion_limit, complexity = self._adaptive_limits(
             question,
             requested_max_subquestions=max_subquestions,
         )
 
+        self._notify(
+            progress_callback,
+            (
+                "🧭 Đã phân loại độ phức tạp câu hỏi: "
+                f"{complexity} | subquestions={selected_subquestions} | recursion={recursion_limit}"
+            ),
+        )
+
+        self._notify(progress_callback, "📝 Đang lập research plan...")
         plan = self._plan(question, max_subquestions=selected_subquestions)
+        self._notify(
+            progress_callback,
+            f"✅ Plan xong, có {len(plan.sub_questions)} câu hỏi con. Bắt đầu research...",
+        )
         artifacts: List[Artifact] = []
 
-        for sub_question in plan.sub_questions:
+        for index, sub_question in enumerate(plan.sub_questions, start=1):
+            self._notify(
+                progress_callback,
+                f"🔎 [{index}/{len(plan.sub_questions)}] Đang research: {sub_question}",
+            )
             findings = self._research_sub_question(
                 sub_question,
                 recursion_limit=recursion_limit,
             )
             artifacts.append(Artifact(sub_question=sub_question, findings=findings))
+            self._notify(
+                progress_callback,
+                f"✅ [{index}/{len(plan.sub_questions)}] Hoàn tất research.",
+            )
 
+        self._notify(progress_callback, "🧠 Đang tổng hợp kết quả cuối...")
         final_answer = self._synthesize(question, plan, artifacts)
+        self._notify(progress_callback, "✅ Hoàn tất tổng hợp. Đang gửi kết quả...")
 
         return {
             "plan": plan.model_dump(),
