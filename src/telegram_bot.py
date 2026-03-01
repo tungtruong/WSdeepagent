@@ -231,7 +231,7 @@ def main() -> None:
     load_dotenv()
 
     token = os.getenv("TELEGRAM_BOT_TOKEN")
-    if not token:
+    if not token or token.strip() == "your_telegram_bot_token_here":
         raise RuntimeError("Thiếu TELEGRAM_BOT_TOKEN. Hãy tạo file .env từ .env.example")
 
     if not os.getenv("OPENAI_API_KEY"):
