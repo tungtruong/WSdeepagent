@@ -32,6 +32,50 @@ class DeepResearchAgent:
         self.tools = [TavilySearch(max_results=5)]
         self.react_agent = create_react_agent(self.model, self.tools)
 
+    def _estimate_complexity(self, question: str) -> str:
+        text = question.strip().lower()
+        word_count = len(text.split())
+
+        complex_markers = [
+            "so sánh",
+            "chiến lược",
+            "roadmap",
+            "đánh giá",
+            "phân tích",
+            "rủi ro",
+            "compliance",
+            "tổng quan",
+            "benchmark",
+            "detailed",
+            "compare",
+            "strategy",
+            "analysis",
+            "trade-off",
+        ]
+        marker_hits = sum(1 for marker in complex_markers if marker in text)
+
+        if word_count <= 9 and marker_hits == 0:
+            return "simple"
+        if word_count >= 22 or marker_hits >= 2:
+            return "complex"
+        return "medium"
+
+    def _adaptive_limits(self, question: str, requested_max_subquestions: int) -> tuple[int, int, str]:
+        complexity = self._estimate_complexity(question)
+
+        if complexity == "simple":
+            auto_subquestions = 1
+            recursion_limit = 8
+        elif complexity == "medium":
+            auto_subquestions = 2
+            recursion_limit = 14
+        else:
+            auto_subquestions = 4
+            recursion_limit = 22
+
+        selected_subquestions = max(1, min(requested_max_subquestions, auto_subquestions))
+        return selected_subquestions, recursion_limit, complexity
+
     def _plan(self, question: str, max_subquestions: int) -> ResearchPlan:
         planner = self.model.with_structured_output(ResearchPlan)
         system = (
@@ -47,7 +91,7 @@ class DeepResearchAgent:
         plan.sub_questions = plan.sub_questions[:max_subquestions]
         return plan
 
-    def _research_sub_question(self, sub_question: str) -> str:
+    def _research_sub_question(self, sub_question: str, recursion_limit: int) -> str:
         prompt = (
             "Bạn là chuyên gia nghiên cứu web. "
             "Dùng tool tìm kiếm để lấy thông tin mới nhất và tóm tắt có dẫn nguồn (URL khi có).\n\n"
@@ -60,7 +104,7 @@ class DeepResearchAgent:
 
         result = self.react_agent.invoke(
             {"messages": [("user", prompt)]},
-            config={"recursion_limit": 25},
+            config={"recursion_limit": recursion_limit},
         )
 
         messages = result.get("messages", [])
@@ -96,11 +140,19 @@ class DeepResearchAgent:
         ).content
 
     def run(self, question: str, max_subquestions: int = 5) -> dict:
-        plan = self._plan(question, max_subquestions=max_subquestions)
+        selected_subquestions, recursion_limit, complexity = self._adaptive_limits(
+            question,
+            requested_max_subquestions=max_subquestions,
+        )
+
+        plan = self._plan(question, max_subquestions=selected_subquestions)
         artifacts: List[Artifact] = []
 
         for sub_question in plan.sub_questions:
-            findings = self._research_sub_question(sub_question)
+            findings = self._research_sub_question(
+                sub_question,
+                recursion_limit=recursion_limit,
+            )
             artifacts.append(Artifact(sub_question=sub_question, findings=findings))
 
         final_answer = self._synthesize(question, plan, artifacts)
@@ -109,4 +161,9 @@ class DeepResearchAgent:
             "plan": plan.model_dump(),
             "artifacts": [a.__dict__ for a in artifacts],
             "final_answer": final_answer,
+            "depth_profile": {
+                "complexity": complexity,
+                "max_subquestions": selected_subquestions,
+                "recursion_limit": recursion_limit,
+            },
         }
