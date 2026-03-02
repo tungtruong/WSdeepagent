@@ -135,8 +135,23 @@ FORCE_CLEAN=true ./scripts/update_service.sh
 - `requirements.txt`: dependencies
 - `.env.example`: mẫu biến môi trường
 
+## Web Crawling
+
+Agent tự động có tool `fetch_url` để lấy nội dung trực tiếp từ URL:
+
+```bash
+# Agent có thể tự gọi fetch_url("https://example.com") trong quá trình research
+python src/main.py --query "Tóm tắt nội dung từ https://example.com/article"
+```
+
+Cấu hình crawling trong `.env`:
+- `WEB_FETCH_TIMEOUT`: Timeout cho mỗi request (giây, mặc định 10)
+- `WEB_FETCH_USER_AGENT`: User agent string
+- `WEB_FETCH_MAX_CHARS`: Giới hạn ký tự trả về (mặc định 50000)
+
 ## Gợi ý mở rộng
 
 - Thay Tavily bằng tool riêng (SerpAPI, internal search)
 - Lưu `artifacts` xuống file JSON để audit
 - Bổ sung guardrails và chấm điểm chất lượng câu trả lời
+- Crawl recursive hoặc hỗ trợ download PDF/DOCX

@@ -3,9 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from typing import Callable, List, Literal
+import requests
+from bs4 import BeautifulSoup
 
 from langchain_tavily import TavilySearch
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 from pydantic import BaseModel, Field
@@ -50,8 +53,60 @@ class DeepResearchAgent:
             llm_kwargs["api_key"] = api_key.strip()
 
         self.model = ChatOpenAI(**llm_kwargs)
-        self.tools = [TavilySearch(max_results=5)]
+        self.tools = [TavilySearch(max_results=5), self._create_web_fetch_tool()]
         self.react_agent = create_react_agent(self.model, self.tools)
+
+    @staticmethod
+    def _create_web_fetch_tool():
+        """Tạo tool để fetch và parse nội dung từ URL."""
+        @tool
+        def fetch_url(url: str) -> str:
+            """Fetch và trích xuất text content từ một URL.
+            
+            Args:
+                url: URL cần lấy nội dung (http/https)
+            
+            Returns:
+                Clean text content từ webpage, hoặc thông báo lỗi nếu thất bại
+            """
+            timeout = int(os.getenv("WEB_FETCH_TIMEOUT", "10"))
+            user_agent = os.getenv(
+                "WEB_FETCH_USER_AGENT",
+                "Mozilla/5.0 (compatible; WSDeepAgent/1.0)"
+            )
+            
+            try:
+                headers = {"User-Agent": user_agent}
+                response = requests.get(url, headers=headers, timeout=timeout)
+                response.raise_for_status()
+                
+                # Parse HTML và lấy text
+                soup = BeautifulSoup(response.content, "lxml")
+                
+                # Bỏ script và style tags
+                for script in soup(["script", "style", "nav", "footer"]):
+                    script.decompose()
+                
+                # Lấy text và clean
+                text = soup.get_text(separator="\n", strip=True)
+                lines = [line.strip() for line in text.splitlines()]
+                text = "\n".join(line for line in lines if line)
+                
+                # Giới hạn độ dài output
+                max_chars = int(os.getenv("WEB_FETCH_MAX_CHARS", "50000"))
+                if len(text) > max_chars:
+                    text = text[:max_chars] + f"\n\n[Truncated at {max_chars} chars]"
+                
+                return f"URL: {url}\n\n{text}"
+                
+            except requests.Timeout:
+                return f"Error: Timeout khi fetch {url} (>{timeout}s)"
+            except requests.RequestException as e:
+                return f"Error: Không thể fetch {url}: {str(e)}"
+            except Exception as e:
+                return f"Error: Lỗi khi parse {url}: {str(e)}"
+        
+        return fetch_url
 
     def _estimate_complexity(self, question: str) -> str:
         text = question.strip().lower()
