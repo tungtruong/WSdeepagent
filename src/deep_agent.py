@@ -30,11 +30,22 @@ class QualityAssessment(BaseModel):
 
 
 class DeepResearchAgent:
-    def __init__(self, model_name: str = "gpt-4o-mini", temperature: float = 0.0) -> None:
+    def __init__(
+        self,
+        model_name: str = "gpt-4o-mini",
+        temperature: float = 0.0,
+        base_url: str | None = None,
+        api_key: str | None = None,
+    ) -> None:
         if not os.getenv("TAVILY_API_KEY"):
             raise RuntimeError("Thiếu TAVILY_API_KEY. Hãy tạo file .env từ .env.example")
 
-        self.model = ChatOpenAI(model=model_name, temperature=temperature)
+        self.model = ChatOpenAI(
+            model=model_name,
+            temperature=temperature,
+            base_url=base_url,
+            api_key=api_key,
+        )
         self.tools = [TavilySearch(max_results=5)]
         self.react_agent = create_react_agent(self.model, self.tools)
 

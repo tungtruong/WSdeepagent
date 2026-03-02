@@ -192,6 +192,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "- Gửi trực tiếp nội dung cần research\n"
         "- Hoặc /ask <nội dung>\n"
         "- /mode auto|fast|balanced|deep để đổi chế độ\n"
+        "- /provider openai|local để đổi backend model\n"
+        "- /model <ten-model> để đổi model theo chat\n"
         "- Dùng /reset để xoá ngữ cảnh hội thoại hiện tại\n"
         "Bot sẽ lập kế hoạch, research và trả về kết quả tổng hợp."
     )
@@ -207,6 +209,86 @@ async def ask_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     await handle_query(update, context, query)
+
+
+def resolve_chat_llm_config(context: ContextTypes.DEFAULT_TYPE, chat_key: str) -> dict:
+    provider_store: Dict[str, str] = context.application.bot_data["provider_store"]
+    model_store: Dict[str, str] = context.application.bot_data["model_store"]
+
+    provider = provider_store.get(chat_key, context.application.bot_data["default_provider"])
+    model_name = model_store.get(chat_key, context.application.bot_data["default_model_name"])
+
+    if provider == "openai":
+        if not os.getenv("OPENAI_API_KEY"):
+            raise RuntimeError("Provider openai yêu cầu OPENAI_API_KEY trong .env")
+        return {
+            "provider": provider,
+            "model_name": model_name,
+            "base_url": None,
+            "api_key": None,
+        }
+
+    local_base_url: str = context.application.bot_data["local_llm_base_url"]
+    local_api_key: str = context.application.bot_data["local_llm_api_key"]
+    if not local_base_url:
+        raise RuntimeError("Provider local yêu cầu LOCAL_LLM_BASE_URL trong .env")
+
+    return {
+        "provider": provider,
+        "model_name": model_name,
+        "base_url": local_base_url,
+        "api_key": local_api_key,
+    }
+
+
+async def provider_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await ensure_authorized(update, context):
+        return
+
+    chat_key = str(update.effective_chat.id)
+    provider_store: Dict[str, str] = context.application.bot_data["provider_store"]
+    default_provider: str = context.application.bot_data["default_provider"]
+
+    if not context.args:
+        current_provider = provider_store.get(chat_key, default_provider)
+        await update.message.reply_text(
+            "Provider hiện tại: "
+            f"{current_provider}. Dùng /provider openai|local để đổi."
+        )
+        return
+
+    requested_provider = context.args[0].strip().lower()
+    if requested_provider not in {"openai", "local"}:
+        await update.message.reply_text("Provider không hợp lệ. Chỉ nhận: openai, local.")
+        return
+
+    provider_store[chat_key] = requested_provider
+    await update.message.reply_text(f"Đã chuyển provider sang: {requested_provider}")
+
+
+async def model_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await ensure_authorized(update, context):
+        return
+
+    chat_key = str(update.effective_chat.id)
+    model_store: Dict[str, str] = context.application.bot_data["model_store"]
+    default_model_name: str = context.application.bot_data["default_model_name"]
+
+    if not context.args:
+        current_model = model_store.get(chat_key, default_model_name)
+        await update.message.reply_text(
+            "Model hiện tại: "
+            f"{current_model}. Dùng /model <ten-model> để đổi."
+        )
+        return
+
+    requested_model = " ".join(context.args).strip()
+    if not requested_model:
+        await update.message.reply_text("Vui lòng nhập tên model sau /model")
+        return
+
+    model_store[chat_key] = requested_model
+    await update.message.reply_text(f"Đã chuyển model sang: {requested_model}")
 
 
 async def mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -266,7 +348,6 @@ async def handle_query(
     context: ContextTypes.DEFAULT_TYPE,
     query: str,
 ) -> None:
-    agent: DeepResearchAgent = context.application.bot_data["deep_agent"]
     max_subquestions: int = context.application.bot_data["max_subquestions"]
     quality_gate_threshold: int = context.application.bot_data["quality_gate_threshold"]
     mode_store: Dict[str, str] = context.application.bot_data["mode_store"]
@@ -282,6 +363,17 @@ async def handle_query(
     chat_id = update.effective_chat.id
     chat_key = str(chat_id)
     selected_mode = mode_store.get(chat_key, default_mode)
+    try:
+        llm_config = resolve_chat_llm_config(context, chat_key)
+    except Exception as exc:
+        await update.message.reply_text(f"Lỗi cấu hình model/provider: {exc}")
+        return
+
+    agent = DeepResearchAgent(
+        model_name=llm_config["model_name"],
+        base_url=llm_config["base_url"],
+        api_key=llm_config["api_key"],
+    )
     chat_memory = memory_store.setdefault(chat_key, [])
     chat_summary = summary_store.get(chat_key, "")
     contextual_query = build_contextual_query(query, chat_memory)
@@ -317,6 +409,23 @@ async def handle_query(
             progress_state["sent"] = latest
 
     reporter_task = asyncio.create_task(periodic_progress_sender())
+
+    await update.message.reply_text(
+        (
+            "Đang research, có thể mất 30-120 giây tuỳ câu hỏi...\n"
+            f"Mode: {selected_mode} | Provider: {llm_config['provider']} | Model: {llm_config['model_name']}"
+        )
+    )
+
+    await send_progress_message(
+        (
+            "📡 New request\n"
+            f"chat_id={chat_id}\n"
+            f"mode={selected_mode}\n"
+            f"provider={llm_config['provider']}\n"
+            f"model={llm_config['model_name']}"
+        )
+    )
 
     def set_latest_progress(message: str) -> None:
         progress_state["latest"] = message
@@ -402,10 +511,12 @@ def main() -> None:
     if not token or token.strip() == "your_telegram_bot_token_here":
         raise RuntimeError("Thiếu TELEGRAM_BOT_TOKEN. Hãy tạo file .env từ .env.example")
 
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("Thiếu OPENAI_API_KEY. Hãy tạo file .env từ .env.example")
-
     model_name = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    default_provider = os.getenv("DEFAULT_LLM_PROVIDER", "openai").strip().lower()
+    if default_provider not in {"openai", "local"}:
+        default_provider = "openai"
+    local_llm_base_url = os.getenv("LOCAL_LLM_BASE_URL", "").strip()
+    local_llm_api_key = os.getenv("LOCAL_LLM_API_KEY", "local").strip() or "local"
     max_subquestions = int(os.getenv("MAX_SUBQUESTIONS", "4"))
     quality_gate_threshold = int(os.getenv("QUALITY_GATE_THRESHOLD", "70"))
     default_mode = os.getenv("DEFAULT_RESEARCH_MODE", "auto").strip().lower()
@@ -425,8 +536,13 @@ def main() -> None:
         progress_chat_ids = notify_chat_ids
 
     app = Application.builder().token(token).post_init(notify_startup).build()
-    app.bot_data["deep_agent"] = DeepResearchAgent(model_name=model_name)
     app.bot_data["model_name"] = model_name
+    app.bot_data["default_model_name"] = model_name
+    app.bot_data["default_provider"] = default_provider
+    app.bot_data["local_llm_base_url"] = local_llm_base_url
+    app.bot_data["local_llm_api_key"] = local_llm_api_key
+    app.bot_data["provider_store"] = {}
+    app.bot_data["model_store"] = {}
     app.bot_data["max_subquestions"] = max_subquestions
     app.bot_data["quality_gate_threshold"] = max(1, min(100, quality_gate_threshold))
     app.bot_data["default_mode"] = default_mode
@@ -446,6 +562,9 @@ def main() -> None:
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("ask", ask_command))
     app.add_handler(CommandHandler("mode", mode_command))
+    app.add_handler(CommandHandler("provider", provider_command))
+    app.add_handler(CommandHandler("model", model_command))
+    app.add_handler(CommandHandler("thinking", model_command))
     app.add_handler(CommandHandler("reset", reset_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_message))
 
