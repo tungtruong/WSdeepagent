@@ -33,53 +33,6 @@ sync_env_missing() {
   fi
 }
 
-configure_heartbeat_timer() {
-  local install_dir="$1"
-  local bot_user="$2"
-  local service_name="$3"
-
-  local env_file="${install_dir}/.env"
-  local interval_minutes="1"
-  if [[ -f "${env_file}" ]]; then
-    local parsed
-    parsed=$(grep -E '^HEARTBEAT_INTERVAL_MINUTES=' "${env_file}" | tail -n 1 | cut -d '=' -f2- | tr -d '[:space:]' || true)
-    if [[ -n "${parsed}" && "${parsed}" =~ ^[0-9]+$ && "${parsed}" -gt 0 ]]; then
-      interval_minutes="${parsed}"
-    fi
-  fi
-
-  local hb_service="/etc/systemd/system/${service_name}-heartbeat.service"
-  local hb_timer="/etc/systemd/system/${service_name}-heartbeat.timer"
-
-  sudo tee "${hb_service}" >/dev/null <<EOF
-[Unit]
-Description=${service_name} heartbeat ping
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-User=${bot_user}
-WorkingDirectory=${install_dir}
-EnvironmentFile=${install_dir}/.env
-ExecStart=${install_dir}/scripts/heartbeat_ping.sh
-EOF
-
-  sudo tee "${hb_timer}" >/dev/null <<EOF
-[Unit]
-Description=Run ${service_name} heartbeat every ${interval_minutes} minute(s)
-
-[Timer]
-OnBootSec=2min
-OnUnitActiveSec=${interval_minutes}min
-Persistent=true
-Unit=${service_name}-heartbeat.service
-
-[Install]
-WantedBy=timers.target
-EOF
-}
-
 if [[ "${EUID}" -eq 0 ]]; then
   echo "[ERROR] Khong chay script bang root. Hay chay bang user thuong (script se tu dung sudo)."
   exit 1
@@ -107,10 +60,6 @@ echo "[3/5] Cap nhat dependencies..."
 
 echo "[4/6] Dong bo cac bien moi tu .env.example vao .env..."
 sync_env_missing "${INSTALL_DIR}/.env" "${INSTALL_DIR}/.env.example"
-chmod +x "${INSTALL_DIR}/scripts/heartbeat_ping.sh"
-configure_heartbeat_timer "${INSTALL_DIR}" "${BOT_USER}" "${SERVICE_NAME}"
-sudo systemctl daemon-reload
-sudo systemctl enable --now "${SERVICE_NAME}-heartbeat.timer"
 
 echo "[5/6] Sua owner thu muc neu can..."
 sudo chown -R "${BOT_USER}:${BOT_USER}" "${INSTALL_DIR}"

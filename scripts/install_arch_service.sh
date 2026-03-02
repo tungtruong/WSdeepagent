@@ -34,53 +34,6 @@ sync_env_missing() {
   fi
 }
 
-configure_heartbeat_timer() {
-  local install_dir="$1"
-  local bot_user="$2"
-  local service_name="$3"
-
-  local env_file="${install_dir}/.env"
-  local interval_minutes="1"
-  if [[ -f "${env_file}" ]]; then
-    local parsed
-    parsed=$(grep -E '^HEARTBEAT_INTERVAL_MINUTES=' "${env_file}" | tail -n 1 | cut -d '=' -f2- | tr -d '[:space:]' || true)
-    if [[ -n "${parsed}" && "${parsed}" =~ ^[0-9]+$ && "${parsed}" -gt 0 ]]; then
-      interval_minutes="${parsed}"
-    fi
-  fi
-
-  local hb_service="/etc/systemd/system/${service_name}-heartbeat.service"
-  local hb_timer="/etc/systemd/system/${service_name}-heartbeat.timer"
-
-  sudo tee "${hb_service}" >/dev/null <<EOF
-[Unit]
-Description=${service_name} heartbeat ping
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-User=${bot_user}
-WorkingDirectory=${install_dir}
-EnvironmentFile=${install_dir}/.env
-ExecStart=${install_dir}/scripts/heartbeat_ping.sh
-EOF
-
-  sudo tee "${hb_timer}" >/dev/null <<EOF
-[Unit]
-Description=Run ${service_name} heartbeat every ${interval_minutes} minute(s)
-
-[Timer]
-OnBootSec=2min
-OnUnitActiveSec=${interval_minutes}min
-Persistent=true
-Unit=${service_name}-heartbeat.service
-
-[Install]
-WantedBy=timers.target
-EOF
-}
-
 if [[ "${EUID}" -eq 0 ]]; then
   echo "[ERROR] Khong chay script bang root. Hay chay bang user thuong (script se tu dung sudo)."
   exit 1
@@ -92,7 +45,7 @@ if ! command -v sudo >/dev/null 2>&1; then
 fi
 
 echo "[1/8] Cai package he thong can thiet..."
-sudo pacman -Syu --noconfirm --needed git python curl
+sudo pacman -Syu --noconfirm --needed git python
 
 echo "[2/8] Tao thu muc cai dat: ${INSTALL_DIR}"
 sudo install -d -m 755 "${INSTALL_DIR}"
@@ -120,8 +73,6 @@ if [[ ! -f "${INSTALL_DIR}/.env" ]]; then
 fi
 sync_env_missing "${INSTALL_DIR}/.env" "${INSTALL_DIR}/.env.example"
 
-chmod +x "${INSTALL_DIR}/scripts/heartbeat_ping.sh"
-
 echo "[6/8] Tao file systemd service..."
 SERVICE_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
 sudo tee "${SERVICE_PATH}" >/dev/null <<EOF
@@ -143,12 +94,9 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
-configure_heartbeat_timer "${INSTALL_DIR}" "${BOT_USER}" "${SERVICE_NAME}"
-
 echo "[7/8] Reload + enable service..."
 sudo systemctl daemon-reload
 sudo systemctl enable --now "${SERVICE_NAME}.service"
-sudo systemctl enable --now "${SERVICE_NAME}-heartbeat.timer"
 
 echo "[8/8] Hoan tat."
 echo "- Kiem tra trang thai: sudo systemctl status ${SERVICE_NAME}.service"
