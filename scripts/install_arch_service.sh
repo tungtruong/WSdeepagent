@@ -6,6 +6,34 @@ INSTALL_DIR="${INSTALL_DIR:-/opt/wsdeepagent}"
 SERVICE_NAME="${SERVICE_NAME:-wsdeepagent}"
 BOT_USER="${BOT_USER:-${SUDO_USER:-$USER}}"
 
+sync_env_missing() {
+  local env_file="$1"
+  local example_file="$2"
+
+  if [[ ! -f "${env_file}" ]]; then
+    cp "${example_file}" "${env_file}"
+    echo "[WARN] Khong tim thay .env, da tao moi tu .env.example"
+    return
+  fi
+
+  local added_count=0
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    [[ -z "${line}" ]] && continue
+    [[ "${line}" =~ ^[[:space:]]*# ]] && continue
+    [[ "${line}" != *=* ]] && continue
+
+    local key="${line%%=*}"
+    if ! grep -qE "^${key}=" "${env_file}"; then
+      echo "${line}" >> "${env_file}"
+      added_count=$((added_count + 1))
+    fi
+  done < "${example_file}"
+
+  if (( added_count > 0 )); then
+    echo "[INFO] Da bo sung ${added_count} bien moi vao .env (giu nguyen gia tri cu)."
+  fi
+}
+
 if [[ "${EUID}" -eq 0 ]]; then
   echo "[ERROR] Khong chay script bang root. Hay chay bang user thuong (script se tu dung sudo)."
   exit 1
@@ -43,6 +71,7 @@ if [[ ! -f "${INSTALL_DIR}/.env" ]]; then
   cp "${INSTALL_DIR}/.env.example" "${INSTALL_DIR}/.env"
   echo "[WARN] Da tao ${INSTALL_DIR}/.env tu mau. Ban can dien OPENAI_API_KEY, TAVILY_API_KEY, TELEGRAM_BOT_TOKEN."
 fi
+sync_env_missing "${INSTALL_DIR}/.env" "${INSTALL_DIR}/.env.example"
 
 echo "[6/8] Tao file systemd service..."
 SERVICE_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
