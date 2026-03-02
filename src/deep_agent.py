@@ -174,6 +174,7 @@ class DeepResearchAgent:
         max_subquestions: int = 5,
         progress_callback: Callable[[str], None] | None = None,
         analysis_question: str | None = None,
+        include_difficulty_header: bool = True,
     ) -> dict:
         effective_analysis_question = (analysis_question or question).strip()
         selected_subquestions, recursion_limit, complexity = self._adaptive_limits(
@@ -215,16 +216,18 @@ class DeepResearchAgent:
         self._notify(progress_callback, "🧠 Đang tổng hợp kết quả cuối...")
         final_answer = self._synthesize(question, plan, artifacts)
         self._notify(progress_callback, "✅ Hoàn tất tổng hợp. Đang gửi kết quả...")
-        difficulty_header = self._build_difficulty_header(
-            complexity=complexity,
-            selected_subquestions=selected_subquestions,
-            recursion_limit=recursion_limit,
-        )
+        if include_difficulty_header:
+            difficulty_header = self._build_difficulty_header(
+                complexity=complexity,
+                selected_subquestions=selected_subquestions,
+                recursion_limit=recursion_limit,
+            )
+            final_answer = f"{difficulty_header}\n\n{final_answer}"
 
         return {
             "plan": plan.model_dump(),
             "artifacts": [a.__dict__ for a in artifacts],
-            "final_answer": f"{difficulty_header}\n\n{final_answer}",
+            "final_answer": final_answer,
             "depth_profile": {
                 "complexity": complexity,
                 "max_subquestions": selected_subquestions,

@@ -93,8 +93,9 @@ Script sẽ tự pull `main`, update dependencies và restart `wsdeepagent.servi
 
 ### Progress report theo nhịp thời gian
 
-- Bot gửi tiến trình research theo nhịp `TELEGRAM_PROGRESS_INTERVAL_SECONDS` (mặc định `10` giây).
-- Mỗi nhịp chỉ gửi trạng thái mới nhất để tránh spam tin nhắn.
+- Bot gửi tiến trình research theo nhịp `TELEGRAM_PROGRESS_INTERVAL_SECONDS` (mặc định `10` giây) vào `TELEGRAM_PROGRESS_CHAT_IDS`.
+- Nếu để trống `TELEGRAM_PROGRESS_CHAT_IDS`, bot fallback dùng `TELEGRAM_NOTIFY_CHAT_IDS`.
+- Chat đang hỏi chỉ nhận phản hồi cuối cùng (không nhận log tiến trình).
 
 ## Cấu trúc
 

@@ -212,6 +212,7 @@ async def handle_query(
     memory_file: str = context.application.bot_data["memory_file"]
     memory_turns: int = context.application.bot_data["memory_turns"]
     progress_interval_seconds: int = context.application.bot_data["progress_interval_seconds"]
+    progress_chat_ids: List[int] = context.application.bot_data["progress_chat_ids"]
     chat_id = update.effective_chat.id
     chat_key = str(chat_id)
     chat_memory = memory_store.setdefault(chat_key, [])
@@ -219,20 +220,26 @@ async def handle_query(
     loop = asyncio.get_running_loop()
     progress_state = {"latest": None, "sent": None, "done": False}
 
-    await update.message.reply_text("Đang research, có thể mất 30-120 giây tuỳ câu hỏi...")
-    await update.message.chat.send_action(action=ChatAction.TYPING)
+    async def send_progress_message(message: str) -> None:
+        if not progress_chat_ids:
+            return
+        for target_chat_id in progress_chat_ids:
+            try:
+                await context.application.bot.send_message(chat_id=target_chat_id, text=message)
+            except Exception:
+                continue
 
     async def periodic_progress_sender() -> None:
         while not progress_state["done"]:
             await asyncio.sleep(progress_interval_seconds)
             latest = progress_state["latest"]
             if latest and latest != progress_state["sent"]:
-                await update.message.reply_text(latest)
+                await send_progress_message(latest)
                 progress_state["sent"] = latest
 
         latest = progress_state["latest"]
         if latest and latest != progress_state["sent"]:
-            await update.message.reply_text(latest)
+            await send_progress_message(latest)
             progress_state["sent"] = latest
 
     reporter_task = asyncio.create_task(periodic_progress_sender())
@@ -253,6 +260,7 @@ async def handle_query(
             max_subquestions,
             progress_callback,
             query,
+            False,
         )
     except Exception as exc:
         progress_state["done"] = True
@@ -318,8 +326,11 @@ def main() -> None:
     progress_interval_seconds = int(os.getenv("TELEGRAM_PROGRESS_INTERVAL_SECONDS", "10"))
     whitelist_ids = parse_whitelist_ids(os.getenv("TELEGRAM_WHITELIST_IDS"))
     notify_chat_ids = parse_chat_ids(os.getenv("TELEGRAM_NOTIFY_CHAT_IDS"))
+    progress_chat_ids = parse_chat_ids(os.getenv("TELEGRAM_PROGRESS_CHAT_IDS"))
     if not notify_chat_ids and whitelist_ids:
         notify_chat_ids = sorted(list(whitelist_ids))
+    if not progress_chat_ids:
+        progress_chat_ids = notify_chat_ids
 
     app = Application.builder().token(token).post_init(notify_startup).build()
     app.bot_data["deep_agent"] = DeepResearchAgent(model_name=model_name)
@@ -330,6 +341,7 @@ def main() -> None:
     app.bot_data["memory_store"] = load_memory_store(memory_file)
     app.bot_data["whitelist_ids"] = whitelist_ids
     app.bot_data["notify_chat_ids"] = notify_chat_ids
+    app.bot_data["progress_chat_ids"] = progress_chat_ids
     app.bot_data["progress_interval_seconds"] = max(3, progress_interval_seconds)
 
     app.add_handler(CommandHandler("start", start_command))
