@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
+import random
 from typing import Callable, List, Literal
+from urllib.parse import unquote, urlparse
 import requests
 from bs4 import BeautifulSoup
 
@@ -82,12 +84,62 @@ class DeepResearchAgent:
                 "Mozilla/5.0 (compatible; WSDeepAgent/1.0)"
             )
             use_playwright = os.getenv("WEB_FETCH_USE_PLAYWRIGHT", "auto").lower()
+
+            proxy_single = (os.getenv("WEB_FETCH_PROXY", "") or "").strip()
+            proxy_list_raw = (os.getenv("WEB_FETCH_PROXY_LIST", "") or "").strip()
+            proxy_rotate = (os.getenv("WEB_FETCH_PROXY_ROTATE", "true") or "true").strip().lower() == "true"
+
+            proxy_pool = [item.strip() for item in proxy_list_raw.split(",") if item.strip()]
+
+            if proxy_pool:
+                selected_proxy = random.choice(proxy_pool) if proxy_rotate else proxy_pool[0]
+            elif proxy_single:
+                selected_proxy = proxy_single
+            elif url.lower().startswith("https://"):
+                selected_proxy = (os.getenv("HTTPS_PROXY", "") or os.getenv("https_proxy", "")).strip()
+            else:
+                selected_proxy = (os.getenv("HTTP_PROXY", "") or os.getenv("http_proxy", "")).strip()
+
+            selected_proxy = selected_proxy or None
+
+            def build_playwright_proxy(proxy_url: str | None) -> dict | None:
+                if not proxy_url:
+                    return None
+
+                parsed = urlparse(proxy_url)
+                if not parsed.scheme or not parsed.hostname:
+                    return {"server": proxy_url}
+
+                server = f"{parsed.scheme}://{parsed.hostname}"
+                if parsed.port:
+                    server = f"{server}:{parsed.port}"
+
+                proxy_config: dict = {"server": server}
+                if parsed.username:
+                    proxy_config["username"] = unquote(parsed.username)
+                if parsed.password:
+                    proxy_config["password"] = unquote(parsed.password)
+
+                return proxy_config
             
             # Thử requests trước cho trang tĩnh (nhanh hơn)
             if use_playwright != "always":
                 try:
                     headers = {"User-Agent": user_agent}
-                    response = requests.get(url, headers=headers, timeout=timeout)
+                    proxies = (
+                        {
+                            "http": selected_proxy,
+                            "https": selected_proxy,
+                        }
+                        if selected_proxy
+                        else None
+                    )
+                    response = requests.get(
+                        url,
+                        headers=headers,
+                        timeout=timeout,
+                        proxies=proxies,
+                    )
                     response.raise_for_status()
                     
                     soup = BeautifulSoup(response.content, "lxml")
@@ -103,7 +155,8 @@ class DeepResearchAgent:
                         max_chars = int(os.getenv("WEB_FETCH_MAX_CHARS", "50000"))
                         if len(text) > max_chars:
                             text = text[:max_chars] + f"\n\n[Truncated at {max_chars} chars]"
-                        return f"URL: {url}\nMethod: requests\n\n{text}"
+                        proxy_label = selected_proxy if selected_proxy else "none"
+                        return f"URL: {url}\nMethod: requests\nProxy: {proxy_label}\n\n{text}"
                     
                 except requests.RequestException:
                     pass  # Fallback to playwright
@@ -118,7 +171,12 @@ class DeepResearchAgent:
             try:
                 with sync_playwright() as p:
                     browser = p.chromium.launch(headless=True)
-                    context = browser.new_context(user_agent=user_agent)
+                    context_kwargs = {"user_agent": user_agent}
+                    playwright_proxy = build_playwright_proxy(selected_proxy)
+                    if playwright_proxy:
+                        context_kwargs["proxy"] = playwright_proxy
+
+                    context = browser.new_context(**context_kwargs)
                     page = context.new_page()
                     
                     page.goto(url, wait_until="networkidle", timeout=timeout * 1000)
@@ -140,7 +198,8 @@ class DeepResearchAgent:
                     if len(text) > max_chars:
                         text = text[:max_chars] + f"\n\n[Truncated at {max_chars} chars]"
                     
-                    return f"URL: {url}\nMethod: playwright\n\n{text}"
+                    proxy_label = selected_proxy if selected_proxy else "none"
+                    return f"URL: {url}\nMethod: playwright\nProxy: {proxy_label}\n\n{text}"
                     
             except PlaywrightTimeout:
                 return f"Error: Timeout khi render {url} với Playwright (>{timeout}s)"

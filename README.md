@@ -157,6 +157,18 @@ Cấu hình crawling trong `.env`:
 - `WEB_FETCH_USER_AGENT`: User agent string
 - `WEB_FETCH_MAX_CHARS`: Giới hạn ký tự (mặc định 50000)
 - `WEB_FETCH_USE_PLAYWRIGHT`: `auto` (mặc định) | `always` | `never`
+- `WEB_FETCH_PROXY`: 1 proxy duy nhất, ví dụ `http://user:pass@host:port`
+- `WEB_FETCH_PROXY_LIST`: danh sách proxy cách nhau dấu phẩy để xoay vòng
+- `WEB_FETCH_PROXY_ROTATE`: `true|false` (mặc định `true`, random proxy từ list)
+
+Ví dụ cấu hình proxy:
+
+```dotenv
+WEB_FETCH_PROXY=http://username:password@proxy1.example.com:8080
+# hoặc dùng list để rotate
+WEB_FETCH_PROXY_LIST=http://proxy1.example.com:8080,http://proxy2.example.com:8080
+WEB_FETCH_PROXY_ROTATE=true
+```
 
 ## Gợi ý mở rộng
 
