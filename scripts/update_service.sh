@@ -65,6 +65,11 @@ echo "[3/5] Cap nhat dependencies..."
 "${INSTALL_DIR}/.venv/bin/python" -m pip install -U pip
 "${INSTALL_DIR}/.venv/bin/pip" install -r "${INSTALL_DIR}/requirements.txt"
 
+echo "[3.5/5] Cap nhat Playwright browsers neu can..."
+if "${INSTALL_DIR}/.venv/bin/python" -c "import playwright" 2>/dev/null; then
+  "${INSTALL_DIR}/.venv/bin/playwright" install chromium || echo "[WARN] Khong the cap nhat playwright"
+fi
+
 echo "[4/5] Đồng bộ các biến mới từ .env.example vào .env..."
 sync_env_missing "${INSTALL_DIR}/.env" "${INSTALL_DIR}/.env.example"
 

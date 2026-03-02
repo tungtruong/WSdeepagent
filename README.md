@@ -137,17 +137,26 @@ FORCE_CLEAN=true ./scripts/update_service.sh
 
 ## Web Crawling
 
-Agent tự động có tool `fetch_url` để lấy nội dung trực tiếp từ URL:
+Agent tự động có tool `fetch_url` với hỗ trợ JavaScript rendering:
 
 ```bash
-# Agent có thể tự gọi fetch_url("https://example.com") trong quá trình research
+# Cài Playwright browsers (chỉ cần 1 lần)
+playwright install chromium
+
+# Agent tự crawl URL trong quá trình research
 python src/main.py --query "Tóm tắt nội dung từ https://example.com/article"
 ```
 
+**Cơ chế crawling thông minh:**
+- Thử `requests` trước (nhanh) cho trang HTML tĩnh
+- Tự động fallback sang `playwright` nếu phát hiện nội dung ít (trang JS-heavy)
+- Hỗ trợ SPA, React, Vue, Angular apps
+
 Cấu hình crawling trong `.env`:
-- `WEB_FETCH_TIMEOUT`: Timeout cho mỗi request (giây, mặc định 10)
+- `WEB_FETCH_TIMEOUT`: Timeout (giây, mặc định 15)
 - `WEB_FETCH_USER_AGENT`: User agent string
-- `WEB_FETCH_MAX_CHARS`: Giới hạn ký tự trả về (mặc định 50000)
+- `WEB_FETCH_MAX_CHARS`: Giới hạn ký tự (mặc định 50000)
+- `WEB_FETCH_USE_PLAYWRIGHT`: `auto` (mặc định) | `always` | `never`
 
 ## Gợi ý mở rộng
 

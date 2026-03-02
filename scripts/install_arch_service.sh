@@ -66,14 +66,18 @@ python -m venv "${INSTALL_DIR}/.venv"
 "${INSTALL_DIR}/.venv/bin/python" -m pip install -U pip
 "${INSTALL_DIR}/.venv/bin/pip" install -r "${INSTALL_DIR}/requirements.txt"
 
-echo "[5/8] Tao file .env neu chua co..."
+echo "[5/8] Setup Playwright browsers..."
+"${INSTALL_DIR}/.venv/bin/playwright" install chromium
+"${INSTALL_DIR}/.venv/bin/playwright" install-deps chromium || echo "[WARN] Khong the cai system deps, co the can sudo"
+
+echo "[6/8] Tao file .env neu chua co..."
 if [[ ! -f "${INSTALL_DIR}/.env" ]]; then
   cp "${INSTALL_DIR}/.env.example" "${INSTALL_DIR}/.env"
   echo "[WARN] Da tao ${INSTALL_DIR}/.env tu mau. Ban can dien OPENAI_API_KEY, TAVILY_API_KEY, TELEGRAM_BOT_TOKEN."
 fi
 sync_env_missing "${INSTALL_DIR}/.env" "${INSTALL_DIR}/.env.example"
 
-echo "[6/8] Tao file systemd service..."
+echo "[7/8] Tao file systemd service..."
 SERVICE_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
 sudo tee "${SERVICE_PATH}" >/dev/null <<EOF
 [Unit]
@@ -94,7 +98,7 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
-echo "[7/8] Reload + enable service..."
+echo "[8/8] Reload + enable service..."
 sudo systemctl daemon-reload
 sudo systemctl enable --now "${SERVICE_NAME}.service"
 

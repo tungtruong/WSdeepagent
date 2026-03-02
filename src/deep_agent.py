@@ -13,6 +13,13 @@ from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 from pydantic import BaseModel, Field
 
+try:
+    from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
+    PLAYWRIGHT_AVAILABLE = True
+except ImportError:
+    PLAYWRIGHT_AVAILABLE = False
+    PlaywrightTimeout = Exception
+
 
 class ResearchPlan(BaseModel):
     objective: str = Field(description="Mục tiêu nghiên cứu")
@@ -58,10 +65,10 @@ class DeepResearchAgent:
 
     @staticmethod
     def _create_web_fetch_tool():
-        """Tạo tool để fetch và parse nội dung từ URL."""
+        """Tạo tool để fetch và parse nội dung từ URL với Playwright fallback."""
         @tool
         def fetch_url(url: str) -> str:
-            """Fetch và trích xuất text content từ một URL.
+            """Fetch và trích xuất text content từ một URL (hỗ trợ JavaScript rendering).
             
             Args:
                 url: URL cần lấy nội dung (http/https)
@@ -69,42 +76,76 @@ class DeepResearchAgent:
             Returns:
                 Clean text content từ webpage, hoặc thông báo lỗi nếu thất bại
             """
-            timeout = int(os.getenv("WEB_FETCH_TIMEOUT", "10"))
+            timeout = int(os.getenv("WEB_FETCH_TIMEOUT", "15"))
             user_agent = os.getenv(
                 "WEB_FETCH_USER_AGENT",
                 "Mozilla/5.0 (compatible; WSDeepAgent/1.0)"
             )
+            use_playwright = os.getenv("WEB_FETCH_USE_PLAYWRIGHT", "auto").lower()
+            
+            # Thử requests trước cho trang tĩnh (nhanh hơn)
+            if use_playwright != "always":
+                try:
+                    headers = {"User-Agent": user_agent}
+                    response = requests.get(url, headers=headers, timeout=timeout)
+                    response.raise_for_status()
+                    
+                    soup = BeautifulSoup(response.content, "lxml")
+                    for script in soup(["script", "style", "nav", "footer"]):
+                        script.decompose()
+                    
+                    text = soup.get_text(separator="\n", strip=True)
+                    lines = [line.strip() for line in text.splitlines()]
+                    text = "\n".join(line for line in lines if line)
+                    
+                    # Kiểm tra xem có đủ nội dung không (tránh trang JS-heavy trống)
+                    if len(text) > 200 or use_playwright == "never":
+                        max_chars = int(os.getenv("WEB_FETCH_MAX_CHARS", "50000"))
+                        if len(text) > max_chars:
+                            text = text[:max_chars] + f"\n\n[Truncated at {max_chars} chars]"
+                        return f"URL: {url}\nMethod: requests\n\n{text}"
+                    
+                except requests.RequestException:
+                    pass  # Fallback to playwright
+            
+            # Fallback: dùng Playwright cho JS-rendered content
+            if not PLAYWRIGHT_AVAILABLE:
+                return (
+                    f"Error: Trang {url} cần JavaScript rendering nhưng Playwright chưa cài.\n"
+                    "Chạy: playwright install chromium"
+                )
             
             try:
-                headers = {"User-Agent": user_agent}
-                response = requests.get(url, headers=headers, timeout=timeout)
-                response.raise_for_status()
-                
-                # Parse HTML và lấy text
-                soup = BeautifulSoup(response.content, "lxml")
-                
-                # Bỏ script và style tags
-                for script in soup(["script", "style", "nav", "footer"]):
-                    script.decompose()
-                
-                # Lấy text và clean
-                text = soup.get_text(separator="\n", strip=True)
-                lines = [line.strip() for line in text.splitlines()]
-                text = "\n".join(line for line in lines if line)
-                
-                # Giới hạn độ dài output
-                max_chars = int(os.getenv("WEB_FETCH_MAX_CHARS", "50000"))
-                if len(text) > max_chars:
-                    text = text[:max_chars] + f"\n\n[Truncated at {max_chars} chars]"
-                
-                return f"URL: {url}\n\n{text}"
-                
-            except requests.Timeout:
-                return f"Error: Timeout khi fetch {url} (>{timeout}s)"
-            except requests.RequestException as e:
-                return f"Error: Không thể fetch {url}: {str(e)}"
+                with sync_playwright() as p:
+                    browser = p.chromium.launch(headless=True)
+                    context = browser.new_context(user_agent=user_agent)
+                    page = context.new_page()
+                    
+                    page.goto(url, wait_until="networkidle", timeout=timeout * 1000)
+                    page.wait_for_timeout(2000)  # Đợi JS render
+                    
+                    # Lấy text content
+                    html = page.content()
+                    browser.close()
+                    
+                    soup = BeautifulSoup(html, "lxml")
+                    for script in soup(["script", "style", "nav", "footer"]):
+                        script.decompose()
+                    
+                    text = soup.get_text(separator="\n", strip=True)
+                    lines = [line.strip() for line in text.splitlines()]
+                    text = "\n".join(line for line in lines if line)
+                    
+                    max_chars = int(os.getenv("WEB_FETCH_MAX_CHARS", "50000"))
+                    if len(text) > max_chars:
+                        text = text[:max_chars] + f"\n\n[Truncated at {max_chars} chars]"
+                    
+                    return f"URL: {url}\nMethod: playwright\n\n{text}"
+                    
+            except PlaywrightTimeout:
+                return f"Error: Timeout khi render {url} với Playwright (>{timeout}s)"
             except Exception as e:
-                return f"Error: Lỗi khi parse {url}: {str(e)}"
+                return f"Error: Lỗi khi fetch {url} với Playwright: {str(e)}"
         
         return fetch_url
 
