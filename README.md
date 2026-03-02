@@ -109,11 +109,19 @@ Ngoài ra script sẽ tự bổ sung các biến mới còn thiếu từ `.env.e
 - Nếu để trống `TELEGRAM_PROGRESS_CHAT_IDS`, bot fallback dùng `TELEGRAM_NOTIFY_CHAT_IDS`.
 - Chat đang hỏi chỉ nhận phản hồi cuối cùng (không nhận log tiến trình).
 
+### Cảnh báo khi server down
+
+- Dùng `HEALTHCHECKS_PING_URL` để bot ping heartbeat định kỳ ra dịch vụ monitor ngoài (ví dụ Healthchecks).
+- Nếu server down/mất mạng lâu, monitor ngoài sẽ gửi cảnh báo (Telegram/Email tuỳ cấu hình bên monitor).
+- Có thể dùng thêm `HEALTHCHECKS_FAIL_URL` để gửi fail signal khi ping lỗi.
+- Chu kỳ ping đặt bằng `HEARTBEAT_INTERVAL_MINUTES` (mặc định 1 phút).
+
 ## Cấu trúc
 
 - `src/deep_agent.py`: logic deep agent
 - `src/main.py`: CLI entrypoint
 - `src/telegram_bot.py`: Telegram chat interface
+- `scripts/heartbeat_ping.sh`: heartbeat ping cho server monitor
 - `requirements.txt`: dependencies
 - `.env.example`: mẫu biến môi trường
 
