@@ -40,12 +40,16 @@ class DeepResearchAgent:
         if not os.getenv("TAVILY_API_KEY"):
             raise RuntimeError("Thiếu TAVILY_API_KEY. Hãy tạo file .env từ .env.example")
 
-        self.model = ChatOpenAI(
-            model=model_name,
-            temperature=temperature,
-            base_url=base_url,
-            api_key=api_key,
-        )
+        llm_kwargs: dict = {
+            "model": model_name,
+            "temperature": temperature,
+        }
+        if base_url and isinstance(base_url, str):
+            llm_kwargs["base_url"] = base_url.strip()
+        if api_key and isinstance(api_key, str):
+            llm_kwargs["api_key"] = api_key.strip()
+
+        self.model = ChatOpenAI(**llm_kwargs)
         self.tools = [TavilySearch(max_results=5)]
         self.react_agent = create_react_agent(self.model, self.tools)
 

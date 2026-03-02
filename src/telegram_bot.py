@@ -219,13 +219,14 @@ def resolve_chat_llm_config(context: ContextTypes.DEFAULT_TYPE, chat_key: str) -
     model_name = model_store.get(chat_key, context.application.bot_data["default_model_name"])
 
     if provider == "openai":
-        if not os.getenv("OPENAI_API_KEY"):
+        openai_api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
+        if not openai_api_key:
             raise RuntimeError("Provider openai yêu cầu OPENAI_API_KEY trong .env")
         return {
             "provider": provider,
             "model_name": model_name,
             "base_url": None,
-            "api_key": None,
+            "api_key": openai_api_key,
         }
 
     local_base_url: str = context.application.bot_data["local_llm_base_url"]
