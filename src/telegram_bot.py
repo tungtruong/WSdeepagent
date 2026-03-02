@@ -59,6 +59,35 @@ def save_memory_store(memory_file: str, memory_store: Dict[str, List[Dict[str, s
     )
 
 
+def load_summary_store(summary_file: str) -> Dict[str, str]:
+    path = Path(summary_file)
+    if not path.exists():
+        return {}
+
+    try:
+        raw_data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+    if not isinstance(raw_data, dict):
+        return {}
+
+    normalized: Dict[str, str] = {}
+    for key, value in raw_data.items():
+        if isinstance(key, str):
+            normalized[key] = str(value or "").strip()
+    return normalized
+
+
+def save_summary_store(summary_file: str, summary_store: Dict[str, str]) -> None:
+    path = Path(summary_file)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(summary_store, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
 def parse_whitelist_ids(raw_ids: str | None) -> Set[int]:
     if not raw_ids:
         return set()
@@ -162,6 +191,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "Cách dùng:\n"
         "- Gửi trực tiếp nội dung cần research\n"
         "- Hoặc /ask <nội dung>\n"
+        "- /mode auto|fast|balanced|deep để đổi chế độ\n"
         "- Dùng /reset để xoá ngữ cảnh hội thoại hiện tại\n"
         "Bot sẽ lập kế hoạch, research và trả về kết quả tổng hợp."
     )
@@ -179,15 +209,45 @@ async def ask_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await handle_query(update, context, query)
 
 
+async def mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await ensure_authorized(update, context):
+        return
+
+    chat_id = str(update.effective_chat.id)
+    mode_store: Dict[str, str] = context.application.bot_data["mode_store"]
+    default_mode: str = context.application.bot_data["default_mode"]
+
+    if not context.args:
+        current_mode = mode_store.get(chat_id, default_mode)
+        await update.message.reply_text(
+            "Mode hiện tại: "
+            f"{current_mode}. Dùng /mode auto|fast|balanced|deep để đổi."
+        )
+        return
+
+    requested_mode = context.args[0].strip().lower()
+    allowed_modes = {"auto", "fast", "balanced", "deep"}
+    if requested_mode not in allowed_modes:
+        await update.message.reply_text("Mode không hợp lệ. Chỉ nhận: auto, fast, balanced, deep.")
+        return
+
+    mode_store[chat_id] = requested_mode
+    await update.message.reply_text(f"Đã chuyển mode sang: {requested_mode}")
+
+
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await ensure_authorized(update, context):
         return
 
     chat_id = update.effective_chat.id
     memory_store: Dict[str, List[Dict[str, str]]] = context.application.bot_data["memory_store"]
+    summary_store: Dict[str, str] = context.application.bot_data["summary_store"]
     memory_file: str = context.application.bot_data["memory_file"]
+    summary_file: str = context.application.bot_data["summary_file"]
     memory_store[str(chat_id)] = []
+    summary_store[str(chat_id)] = ""
     save_memory_store(memory_file, memory_store)
+    save_summary_store(summary_file, summary_store)
     await update.message.reply_text("Đã xoá ngữ cảnh hội thoại của phiên chat này.")
 
 
@@ -208,15 +268,29 @@ async def handle_query(
 ) -> None:
     agent: DeepResearchAgent = context.application.bot_data["deep_agent"]
     max_subquestions: int = context.application.bot_data["max_subquestions"]
+    quality_gate_threshold: int = context.application.bot_data["quality_gate_threshold"]
+    mode_store: Dict[str, str] = context.application.bot_data["mode_store"]
+    default_mode: str = context.application.bot_data["default_mode"]
     memory_store: Dict[str, List[Dict[str, str]]] = context.application.bot_data["memory_store"]
+    summary_store: Dict[str, str] = context.application.bot_data["summary_store"]
+    memory_summary_enabled: bool = context.application.bot_data["memory_summary_enabled"]
     memory_file: str = context.application.bot_data["memory_file"]
+    summary_file: str = context.application.bot_data["summary_file"]
     memory_turns: int = context.application.bot_data["memory_turns"]
     progress_interval_seconds: int = context.application.bot_data["progress_interval_seconds"]
     progress_chat_ids: List[int] = context.application.bot_data["progress_chat_ids"]
     chat_id = update.effective_chat.id
     chat_key = str(chat_id)
+    selected_mode = mode_store.get(chat_key, default_mode)
     chat_memory = memory_store.setdefault(chat_key, [])
+    chat_summary = summary_store.get(chat_key, "")
     contextual_query = build_contextual_query(query, chat_memory)
+    if chat_summary:
+        contextual_query = (
+            "Tóm tắt ngữ cảnh dài hạn của hội thoại:\n"
+            f"{chat_summary}\n\n"
+            f"{contextual_query}"
+        )
     loop = asyncio.get_running_loop()
     progress_state = {"latest": None, "sent": None, "done": False}
 
@@ -261,6 +335,8 @@ async def handle_query(
             progress_callback,
             query,
             False,
+            selected_mode,
+            quality_gate_threshold,
         )
     except Exception as exc:
         progress_state["done"] = True
@@ -275,8 +351,18 @@ async def handle_query(
     answer = result.get("final_answer", "Không có kết quả.")
     chat_memory.append({"user": query, "assistant": answer})
     if len(chat_memory) > memory_turns:
+        removed_turns = chat_memory[:-memory_turns]
         del chat_memory[:-memory_turns]
+        if memory_summary_enabled and removed_turns:
+            previous_summary = summary_store.get(chat_key, "")
+            merged_summary = await asyncio.to_thread(
+                agent.summarize_memory,
+                previous_summary,
+                removed_turns,
+            )
+            summary_store[chat_key] = merged_summary
     save_memory_store(memory_file, memory_store)
+    save_summary_store(summary_file, summary_store)
 
     chunks = split_message(answer)
 
@@ -321,8 +407,14 @@ def main() -> None:
 
     model_name = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     max_subquestions = int(os.getenv("MAX_SUBQUESTIONS", "4"))
+    quality_gate_threshold = int(os.getenv("QUALITY_GATE_THRESHOLD", "70"))
+    default_mode = os.getenv("DEFAULT_RESEARCH_MODE", "auto").strip().lower()
+    if default_mode not in {"auto", "fast", "balanced", "deep"}:
+        default_mode = "auto"
     memory_turns = int(os.getenv("MEMORY_TURNS", "3"))
+    memory_summary_enabled = os.getenv("MEMORY_SUMMARY_ENABLED", "true").strip().lower() == "true"
     memory_file = os.getenv("MEMORY_STORE_FILE", "data/memory_store.json")
+    summary_file = os.getenv("MEMORY_SUMMARY_FILE", "data/memory_summary.json")
     progress_interval_seconds = int(os.getenv("TELEGRAM_PROGRESS_INTERVAL_SECONDS", "10"))
     whitelist_ids = parse_whitelist_ids(os.getenv("TELEGRAM_WHITELIST_IDS"))
     notify_chat_ids = parse_chat_ids(os.getenv("TELEGRAM_NOTIFY_CHAT_IDS"))
@@ -336,9 +428,15 @@ def main() -> None:
     app.bot_data["deep_agent"] = DeepResearchAgent(model_name=model_name)
     app.bot_data["model_name"] = model_name
     app.bot_data["max_subquestions"] = max_subquestions
+    app.bot_data["quality_gate_threshold"] = max(1, min(100, quality_gate_threshold))
+    app.bot_data["default_mode"] = default_mode
+    app.bot_data["mode_store"] = {}
     app.bot_data["memory_turns"] = memory_turns
+    app.bot_data["memory_summary_enabled"] = memory_summary_enabled
     app.bot_data["memory_file"] = memory_file
+    app.bot_data["summary_file"] = summary_file
     app.bot_data["memory_store"] = load_memory_store(memory_file)
+    app.bot_data["summary_store"] = load_summary_store(summary_file)
     app.bot_data["whitelist_ids"] = whitelist_ids
     app.bot_data["notify_chat_ids"] = notify_chat_ids
     app.bot_data["progress_chat_ids"] = progress_chat_ids
@@ -347,6 +445,7 @@ def main() -> None:
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("ask", ask_command))
+    app.add_handler(CommandHandler("mode", mode_command))
     app.add_handler(CommandHandler("reset", reset_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_message))
 

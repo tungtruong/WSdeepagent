@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
-from typing import Callable, List
+from typing import Callable, List, Literal
 
 from langchain_tavily import TavilySearch
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -21,6 +21,12 @@ class ResearchPlan(BaseModel):
 class Artifact:
     sub_question: str
     findings: str
+
+
+class QualityAssessment(BaseModel):
+    score: int = Field(description="Điểm chất lượng từ 0 đến 100")
+    verdict: Literal["pass", "fail"] = Field(description="Kết luận qua hay chưa qua quality gate")
+    feedback: List[str] = Field(description="Danh sách góp ý để cải thiện câu trả lời")
 
 
 class DeepResearchAgent:
@@ -60,7 +66,22 @@ class DeepResearchAgent:
             return "complex"
         return "medium"
 
-    def _adaptive_limits(self, question: str, requested_max_subquestions: int) -> tuple[int, int, str]:
+    def _adaptive_limits(
+        self,
+        question: str,
+        requested_max_subquestions: int,
+        mode: Literal["auto", "fast", "balanced", "deep"],
+    ) -> tuple[int, int, str]:
+        if mode == "fast":
+            selected_subquestions = max(1, min(requested_max_subquestions, 1))
+            return selected_subquestions, 8, "simple"
+        if mode == "balanced":
+            selected_subquestions = max(1, min(requested_max_subquestions, 2))
+            return selected_subquestions, 14, "medium"
+        if mode == "deep":
+            selected_subquestions = max(1, min(requested_max_subquestions, 4))
+            return selected_subquestions, 24, "complex"
+
         complexity = self._estimate_complexity(question)
 
         if complexity == "simple":
@@ -139,6 +160,55 @@ class DeepResearchAgent:
             [SystemMessage(content=system), HumanMessage(content=user)]
         ).content
 
+    def _evaluate_quality(self, question: str, answer: str) -> QualityAssessment:
+        evaluator = self.model.with_structured_output(QualityAssessment)
+        system = (
+            "Bạn là quality reviewer cực kỳ nghiêm ngặt. "
+            "Chấm điểm câu trả lời theo: độ đầy đủ, tính chính xác, rõ cấu trúc, có nêu rủi ro/giới hạn."
+        )
+        user = (
+            f"Câu hỏi: {question}\n\n"
+            f"Câu trả lời hiện tại:\n{answer}\n\n"
+            "Trả về score (0-100), verdict (pass/fail), feedback dạng gạch đầu dòng ngắn."
+        )
+        quality = evaluator.invoke([SystemMessage(content=system), HumanMessage(content=user)])
+        quality.score = max(0, min(100, quality.score))
+        if quality.score >= 70:
+            quality.verdict = "pass"
+        return quality
+
+    def _refine_answer(self, question: str, answer: str, feedback: List[str]) -> str:
+        system = (
+            "Bạn là principal analyst. Hãy cải thiện câu trả lời theo feedback, "
+            "giữ tính súc tích và đảm bảo các mục quan trọng rõ ràng."
+        )
+        user = (
+            f"Câu hỏi: {question}\n\n"
+            f"Câu trả lời hiện tại:\n{answer}\n\n"
+            f"Feedback cần sửa: {chr(10).join(f'- {item}' for item in feedback)}\n\n"
+            "Trả về bản final đã cải thiện."
+        )
+        return self.model.invoke([SystemMessage(content=system), HumanMessage(content=user)]).content
+
+    def summarize_memory(self, previous_summary: str, turns_to_merge: List[dict]) -> str:
+        if not turns_to_merge:
+            return previous_summary
+
+        turns_text = "\n\n".join(
+            f"User: {item.get('user', '')}\nAssistant: {item.get('assistant', '')}"
+            for item in turns_to_merge
+        )
+        system = (
+            "Bạn là memory summarizer. Tóm tắt ngữ cảnh hội thoại dạng ngắn gọn, "
+            "giữ lại intent, thông tin sở thích/ràng buộc của user, và quyết định quan trọng."
+        )
+        user = (
+            f"Summary hiện tại:\n{previous_summary or '(chưa có)'}\n\n"
+            f"Các lượt hội thoại mới cần gộp:\n{turns_text}\n\n"
+            "Trả về summary đã cập nhật, tối đa 12 gạch đầu dòng."
+        )
+        return self.model.invoke([SystemMessage(content=system), HumanMessage(content=user)]).content
+
     @staticmethod
     def _build_difficulty_header(
         complexity: str,
@@ -175,18 +245,21 @@ class DeepResearchAgent:
         progress_callback: Callable[[str], None] | None = None,
         analysis_question: str | None = None,
         include_difficulty_header: bool = True,
+        mode: Literal["auto", "fast", "balanced", "deep"] = "auto",
+        quality_gate_threshold: int = 70,
     ) -> dict:
         effective_analysis_question = (analysis_question or question).strip()
         selected_subquestions, recursion_limit, complexity = self._adaptive_limits(
             effective_analysis_question,
             requested_max_subquestions=max_subquestions,
+            mode=mode,
         )
 
         self._notify(
             progress_callback,
             (
                 "🧭 Đã phân loại độ phức tạp câu hỏi: "
-                f"{complexity} | subquestions={selected_subquestions} | recursion={recursion_limit}"
+                f"{complexity} | mode={mode} | subquestions={selected_subquestions} | recursion={recursion_limit}"
             ),
         )
 
@@ -215,7 +288,26 @@ class DeepResearchAgent:
 
         self._notify(progress_callback, "🧠 Đang tổng hợp kết quả cuối...")
         final_answer = self._synthesize(question, plan, artifacts)
-        self._notify(progress_callback, "✅ Hoàn tất tổng hợp. Đang gửi kết quả...")
+
+        self._notify(progress_callback, "🛡️ Đang chạy quality gate...")
+        quality = self._evaluate_quality(question=question, answer=final_answer)
+        threshold = max(1, min(100, quality_gate_threshold))
+        if quality.score < threshold:
+            self._notify(
+                progress_callback,
+                f"⚠️ Quality gate chưa đạt ({quality.score}/{threshold}). Đang refine câu trả lời...",
+            )
+            final_answer = self._refine_answer(
+                question=question,
+                answer=final_answer,
+                feedback=quality.feedback,
+            )
+            quality = self._evaluate_quality(question=question, answer=final_answer)
+
+        self._notify(
+            progress_callback,
+            f"✅ Quality gate: {quality.score}/100 ({quality.verdict}). Đang gửi kết quả...",
+        )
         if include_difficulty_header:
             difficulty_header = self._build_difficulty_header(
                 complexity=complexity,
@@ -230,7 +322,9 @@ class DeepResearchAgent:
             "final_answer": final_answer,
             "depth_profile": {
                 "complexity": complexity,
+                "mode": mode,
                 "max_subquestions": selected_subquestions,
                 "recursion_limit": recursion_limit,
             },
+            "quality_gate": quality.model_dump(),
         }

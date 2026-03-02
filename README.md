@@ -77,7 +77,18 @@ Script sẽ tự pull `main`, update dependencies và restart `wsdeepagent.servi
 - Bot tự nhớ lịch sử hội thoại theo từng `chat_id` và dùng làm ngữ cảnh cho câu hỏi mới.
 - Giới hạn số lượt nhớ bằng biến `MEMORY_TURNS` (mặc định `3`).
 - Memory được lưu xuống file `MEMORY_STORE_FILE` để vẫn giữ sau khi restart bot.
+- Khi số lượt vượt ngưỡng, bot tự tóm tắt lịch sử cũ vào `MEMORY_SUMMARY_FILE` (bật/tắt bằng `MEMORY_SUMMARY_ENABLED`).
 - Dùng `/reset` để xoá ngữ cảnh của phiên chat hiện tại.
+
+### Mode switch
+
+- Dùng `/mode auto|fast|balanced|deep` để đổi chế độ nghiên cứu theo từng chat.
+- `DEFAULT_RESEARCH_MODE` đặt mode mặc định khi chưa chọn riêng.
+
+### Quality gate
+
+- Sau khi tổng hợp, bot tự chấm điểm chất lượng câu trả lời (0-100).
+- Nếu điểm dưới `QUALITY_GATE_THRESHOLD`, bot tự refine thêm 1 vòng trước khi trả final.
 
 ### Whitelist user ID
 
