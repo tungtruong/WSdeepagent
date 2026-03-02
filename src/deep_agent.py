@@ -140,6 +140,26 @@ class DeepResearchAgent:
         ).content
 
     @staticmethod
+    def _build_difficulty_header(
+        complexity: str,
+        selected_subquestions: int,
+        recursion_limit: int,
+    ) -> str:
+        complexity_label = {
+            "simple": "Dễ",
+            "medium": "Trung bình",
+            "complex": "Khó",
+        }.get(complexity, complexity)
+
+        return (
+            "## Đánh giá câu hỏi\n"
+            f"- Mức độ: **{complexity_label}**\n"
+            f"- Số câu hỏi con dùng: **{selected_subquestions}**\n"
+            f"- Độ sâu mỗi câu (recursion limit): **{recursion_limit}**\n"
+            "- Chiến lược trả lời: **Tự động điều chỉnh theo độ khó**"
+        )
+
+    @staticmethod
     def _notify(progress_callback: Callable[[str], None] | None, message: str) -> None:
         if progress_callback is None:
             return
@@ -193,11 +213,16 @@ class DeepResearchAgent:
         self._notify(progress_callback, "🧠 Đang tổng hợp kết quả cuối...")
         final_answer = self._synthesize(question, plan, artifacts)
         self._notify(progress_callback, "✅ Hoàn tất tổng hợp. Đang gửi kết quả...")
+        difficulty_header = self._build_difficulty_header(
+            complexity=complexity,
+            selected_subquestions=selected_subquestions,
+            recursion_limit=recursion_limit,
+        )
 
         return {
             "plan": plan.model_dump(),
             "artifacts": [a.__dict__ for a in artifacts],
-            "final_answer": final_answer,
+            "final_answer": f"{difficulty_header}\n\n{final_answer}",
             "depth_profile": {
                 "complexity": complexity,
                 "max_subquestions": selected_subquestions,
