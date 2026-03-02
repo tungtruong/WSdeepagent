@@ -82,6 +82,12 @@ chmod +x scripts/update_service.sh
 Script sẽ tự pull `main`, update dependencies và restart `wsdeepagent.service`.
 Ngoài ra script sẽ tự bổ sung các biến mới còn thiếu từ `.env.example` vào `.env` (không ghi đè giá trị cũ).
 
+Nếu server có local changes và bạn muốn bỏ hết để update không bị hỏi commit/stash:
+
+```bash
+FORCE_CLEAN=true ./scripts/update_service.sh
+```
+
 ### Session memory theo từng user/chat
 
 - Bot tự nhớ lịch sử hội thoại theo từng `chat_id` và dùng làm ngữ cảnh cho câu hỏi mới.

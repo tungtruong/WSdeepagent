@@ -4,6 +4,7 @@ set -euo pipefail
 INSTALL_DIR="${INSTALL_DIR:-/opt/wsdeepagent}"
 SERVICE_NAME="${SERVICE_NAME:-wsdeepagent}"
 BOT_USER="${BOT_USER:-${SUDO_USER:-$USER}}"
+FORCE_CLEAN="${FORCE_CLEAN:-false}"
 
 sync_env_missing() {
   local env_file="$1"
@@ -45,6 +46,12 @@ if [[ ! -d "${INSTALL_DIR}/.git" ]]; then
 fi
 
 echo "[1/5] Pull code moi nhat..."
+if [[ "${FORCE_CLEAN,,}" == "true" ]]; then
+  echo "[INFO] FORCE_CLEAN=true -> reset local changes truoc khi pull"
+  git -C "${INSTALL_DIR}" reset --hard HEAD
+  git -C "${INSTALL_DIR}" clean -fd
+fi
+
 git -C "${INSTALL_DIR}" fetch origin
 git -C "${INSTALL_DIR}" checkout main
 git -C "${INSTALL_DIR}" pull --ff-only origin main
