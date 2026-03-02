@@ -3,9 +3,11 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import tempfile
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Dict, List, Set
+from threading import Lock
 
 from dotenv import load_dotenv
 from telegram import Update
@@ -16,6 +18,56 @@ from deep_agent import DeepResearchAgent
 
 
 TELEGRAM_MESSAGE_LIMIT = 4000
+
+# Per-chat request lock để tránh race condition khi lưu memory
+_chat_locks: Dict[str, Lock] = {}
+_locks_lock = Lock()
+
+
+def _get_chat_lock(chat_id: str) -> Lock:
+    """Lấy lock riêng cho mỗi chat_id (tạo nếu chưa có)."""
+    with _locks_lock:
+        if chat_id not in _chat_locks:
+            _chat_locks[chat_id] = Lock()
+        return _chat_locks[chat_id]
+
+
+def save_memory_store_atomic(memory_file: str, memory_store: Dict[str, List[Dict[str, str]]]) -> None:
+    """Ghi memory store kiểu atomic (temp file -> rename)."""
+    path = Path(memory_file)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Ghi vào temp file trước
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        dir=path.parent,
+        delete=False,
+        suffix=".tmp",
+        encoding="utf-8",
+    ) as tmp_f:
+        tmp_path = Path(tmp_f.name)
+        json.dump(memory_store, tmp_f, ensure_ascii=False, indent=2)
+    
+    # Rename atomic
+    tmp_path.replace(path)
+
+
+def save_summary_store_atomic(summary_file: str, summary_store: Dict[str, str]) -> None:
+    """Ghi summary store kiểu atomic (temp file -> rename)."""
+    path = Path(summary_file)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        dir=path.parent,
+        delete=False,
+        suffix=".tmp",
+        encoding="utf-8",
+    ) as tmp_f:
+        tmp_path = Path(tmp_f.name)
+        json.dump(summary_store, tmp_f, ensure_ascii=False, indent=2)
+    
+    tmp_path.replace(path)
 
 
 def load_memory_store(memory_file: str) -> Dict[str, List[Dict[str, str]]]:
@@ -323,14 +375,20 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     chat_id = update.effective_chat.id
+    chat_key = str(chat_id)
+    chat_lock = _get_chat_lock(chat_key)
+    
     memory_store: Dict[str, List[Dict[str, str]]] = context.application.bot_data["memory_store"]
     summary_store: Dict[str, str] = context.application.bot_data["summary_store"]
     memory_file: str = context.application.bot_data["memory_file"]
     summary_file: str = context.application.bot_data["summary_file"]
-    memory_store[str(chat_id)] = []
-    summary_store[str(chat_id)] = ""
-    save_memory_store(memory_file, memory_store)
-    save_summary_store(summary_file, summary_store)
+    
+    with chat_lock:
+        memory_store[chat_key] = []
+        summary_store[chat_key] = ""
+        save_memory_store_atomic(memory_file, memory_store)
+        save_summary_store_atomic(summary_file, summary_store)
+    
     await update.message.reply_text("Đã xoá ngữ cảnh hội thoại của phiên chat này.")
 
 
@@ -459,20 +517,24 @@ async def handle_query(
     await reporter_task
 
     answer = result.get("final_answer", "Không có kết quả.")
-    chat_memory.append({"user": query, "assistant": answer})
-    if len(chat_memory) > memory_turns:
-        removed_turns = chat_memory[:-memory_turns]
-        del chat_memory[:-memory_turns]
-        if memory_summary_enabled and removed_turns:
-            previous_summary = summary_store.get(chat_key, "")
-            merged_summary = await asyncio.to_thread(
-                agent.summarize_memory,
-                previous_summary,
-                removed_turns,
-            )
-            summary_store[chat_key] = merged_summary
-    save_memory_store(memory_file, memory_store)
-    save_summary_store(summary_file, summary_store)
+    chat_key = str(chat_id)
+    chat_lock = _get_chat_lock(chat_key)
+    
+    with chat_lock:
+        chat_memory.append({"user": query, "assistant": answer})
+        if len(chat_memory) > memory_turns:
+            removed_turns = chat_memory[:-memory_turns]
+            del chat_memory[:-memory_turns]
+            if memory_summary_enabled and removed_turns:
+                previous_summary = summary_store.get(chat_key, "")
+                merged_summary = await asyncio.to_thread(
+                    agent.summarize_memory,
+                    previous_summary,
+                    removed_turns,
+                )
+                summary_store[chat_key] = merged_summary
+        save_memory_store_atomic(memory_file, memory_store)
+        save_summary_store_atomic(summary_file, summary_store)
 
     chunks = split_message(answer)
 

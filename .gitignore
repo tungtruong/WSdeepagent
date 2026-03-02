@@ -3,3 +3,5 @@ __pycache__/
 *.pyc
 .env
 data/memory_store.json
+data/memory_summary.json
+data/

@@ -33,14 +33,33 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     load_dotenv()
-
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("Thiếu OPENAI_API_KEY. Hãy tạo file .env từ .env.example")
-
-    model_name = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     args = parse_args()
 
-    agent = DeepResearchAgent(model_name=model_name)
+    model_name = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    default_provider = os.getenv("DEFAULT_LLM_PROVIDER", "openai").strip().lower()
+    if default_provider not in {"openai", "local"}:
+        default_provider = "openai"
+
+    if default_provider == "openai":
+        openai_api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
+        if not openai_api_key:
+            raise RuntimeError("Provider openai yêu cầu OPENAI_API_KEY trong .env")
+        agent = DeepResearchAgent(
+            model_name=model_name,
+            base_url=None,
+            api_key=openai_api_key,
+        )
+    else:
+        local_llm_base_url = (os.getenv("LOCAL_LLM_BASE_URL") or "").strip()
+        local_llm_api_key = (os.getenv("LOCAL_LLM_API_KEY") or "local").strip() or "local"
+        if not local_llm_base_url:
+            raise RuntimeError("Provider local yêu cầu LOCAL_LLM_BASE_URL trong .env")
+        agent = DeepResearchAgent(
+            model_name=model_name,
+            base_url=local_llm_base_url,
+            api_key=local_llm_api_key,
+        )
+
     result = agent.run(args.query, max_subquestions=args.max_subquestions)
 
     print("\n=== PLAN ===")

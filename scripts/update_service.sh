@@ -65,15 +65,15 @@ echo "[3/5] Cap nhat dependencies..."
 "${INSTALL_DIR}/.venv/bin/python" -m pip install -U pip
 "${INSTALL_DIR}/.venv/bin/pip" install -r "${INSTALL_DIR}/requirements.txt"
 
-echo "[4/6] Dong bo cac bien moi tu .env.example vao .env..."
+echo "[4/5] Đồng bộ các biến mới từ .env.example vào .env..."
 sync_env_missing "${INSTALL_DIR}/.env" "${INSTALL_DIR}/.env.example"
 
-echo "[5/6] Sua owner thu muc neu can..."
+echo "[5/5] Sửa owner thư mục nếu cần..."
 sudo chown -R "${BOT_USER}:${BOT_USER}" "${INSTALL_DIR}"
 
-echo "[6/6] Restart service..."
+echo "[6/5] Restart service..."
 sudo systemctl restart "${SERVICE_NAME}.service"
 sudo systemctl status "${SERVICE_NAME}.service" --no-pager
 
-echo "Hoan tat. Xem log realtime bang lenh:"
+echo "Hoàn tất. Xem log realtime bằng lệnh:"
 echo "journalctl -u ${SERVICE_NAME}.service -f"

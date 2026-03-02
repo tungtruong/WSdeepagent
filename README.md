@@ -9,7 +9,10 @@ Agent này tạo workflow nghiên cứu sâu theo 3 bước:
 
 ```bash
 python -m venv .venv
-.venv\Scripts\activate
+# Linux / macOS
+source .venv/bin/activate
+# Hoặc trên Windows:
+# .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
@@ -57,7 +60,7 @@ Lệnh đổi model trực tiếp trên Telegram:
 
 Ví dụ dùng model local trong LAN (OpenAI-compatible API):
 - `DEFAULT_LLM_PROVIDER=local`
-- `LOCAL_LLM_BASE_URL=http://192.168.1.10:11434/v1`
+- `LOCAL_LLM_BASE_URL=http://whitesun-pc.local:11434/v1`
 - `LOCAL_LLM_API_KEY=local`
 
 ## 5) Cài nhanh trên Arch Linux (service)
