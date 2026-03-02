@@ -173,9 +173,11 @@ class DeepResearchAgent:
         question: str,
         max_subquestions: int = 5,
         progress_callback: Callable[[str], None] | None = None,
+        analysis_question: str | None = None,
     ) -> dict:
+        effective_analysis_question = (analysis_question or question).strip()
         selected_subquestions, recursion_limit, complexity = self._adaptive_limits(
-            question,
+            effective_analysis_question,
             requested_max_subquestions=max_subquestions,
         )
 

@@ -252,6 +252,7 @@ async def handle_query(
             contextual_query,
             max_subquestions,
             progress_callback,
+            query,
         )
     except Exception as exc:
         progress_state["done"] = True
