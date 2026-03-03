@@ -22,6 +22,12 @@ except ImportError:
     PLAYWRIGHT_AVAILABLE = False
     PlaywrightTimeout = Exception
 
+try:
+    import zyte_api
+    ZYTE_AVAILABLE = True
+except ImportError:
+    ZYTE_AVAILABLE = False
+
 
 class ResearchPlan(BaseModel):
     objective: str = Field(description="Mục tiêu nghiên cứu")
@@ -67,7 +73,7 @@ class DeepResearchAgent:
 
     @staticmethod
     def _create_web_fetch_tool():
-        """Tạo tool để fetch và parse nội dung từ URL với Playwright fallback."""
+        """Tạo tool để fetch và parse nội dung từ URL với Zyte/Playwright fallback."""
         @tool
         def fetch_url(url: str) -> str:
             """Fetch và trích xuất text content từ một URL (hỗ trợ JavaScript rendering).
@@ -84,6 +90,8 @@ class DeepResearchAgent:
                 "Mozilla/5.0 (compatible; WSDeepAgent/1.0)"
             )
             use_playwright = os.getenv("WEB_FETCH_USE_PLAYWRIGHT", "auto").lower()
+            zyte_api_key = (os.getenv("ZYTE_API_KEY", "") or "").strip()
+            use_zyte = os.getenv("WEB_FETCH_USE_ZYTE", "true").lower() == "true" and zyte_api_key
 
             proxy_single = (os.getenv("WEB_FETCH_PROXY", "") or "").strip()
             proxy_list_raw = (os.getenv("WEB_FETCH_PROXY_LIST", "") or "").strip()
@@ -121,6 +129,33 @@ class DeepResearchAgent:
                     proxy_config["password"] = unquote(parsed.password)
 
                 return proxy_config
+            
+            # Ưu tiên dùng Zyte API nếu có key
+            if use_zyte and ZYTE_AVAILABLE:
+                try:
+                    html = zyte_api.get_html(
+                        url,
+                        api_key=zyte_api_key,
+                        timeout=timeout,
+                    )
+                    
+                    soup = BeautifulSoup(html, "lxml")
+                    for script in soup(["script", "style", "nav", "footer"]):
+                        script.decompose()
+                    
+                    text = soup.get_text(separator="\n", strip=True)
+                    lines = [line.strip() for line in text.splitlines()]
+                    text = "\n".join(line for line in lines if line)
+                    
+                    max_chars = int(os.getenv("WEB_FETCH_MAX_CHARS", "50000"))
+                    if len(text) > max_chars:
+                        text = text[:max_chars] + f"\n\n[Truncated at {max_chars} chars]"
+                    
+                    return f"URL: {url}\nMethod: zyte-api\nProxy: managed by Zyte\n\n{text}"
+                    
+                except Exception as e:
+                    # Fallback nếu Zyte fail
+                    pass
             
             # Thử requests trước cho trang tĩnh (nhanh hơn)
             if use_playwright != "always":
@@ -204,7 +239,7 @@ class DeepResearchAgent:
             except PlaywrightTimeout:
                 return f"Error: Timeout khi render {url} với Playwright (>{timeout}s)"
             except Exception as e:
-                return f"Error: Lỗi khi fetch {url} với Playwright: {str(e)}"
+                return f"Error: Lỗi khi fetch {url}: {str(e)}"
         
         return fetch_url
 

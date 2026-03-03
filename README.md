@@ -140,35 +140,42 @@ FORCE_CLEAN=true ./scripts/update_service.sh
 Agent tự động có tool `fetch_url` với hỗ trợ JavaScript rendering:
 
 ```bash
-# Cài Playwright browsers (chỉ cần 1 lần)
+# Cài Playwright browsers (chỉ cần nếu không dùng Zyte)
 playwright install chromium
 
 # Agent tự crawl URL trong quá trình research
 python src/main.py --query "Tóm tắt nội dung từ https://example.com/article"
 ```
 
-**Cơ chế crawling thông minh:**
-- Thử `requests` trước (nhanh) cho trang HTML tĩnh
-- Tự động fallback sang `playwright` nếu phát hiện nội dung ít (trang JS-heavy)
-- Hỗ trợ SPA, React, Vue, Angular apps
+**Cơ chế crawling thông minh (ưu tiên):**
+1. Nếu có `ZYTE_API_KEY` → dùng Zyte API (JS support + proxy auto)
+2. Thử `requests` + proxy (nhanh) cho trang HTML tĩnh
+3. Fallback sang `playwright` nếu phát hiện nội dung ít (trang JS-heavy)
 
-Cấu hình crawling trong `.env`:
+**Hỗ trợ:** SPA, React, Vue, Angular apps
+
+### Cấu hình Zyte API (khuyến cáo)
+
+```dotenv
+ZYTE_API_KEY=your_zyte_api_key_here
+WEB_FETCH_USE_ZYTE=true
+```
+
+Lợi ích:
+- Không cần cài Playwright + browser
+- Proxy tự động rotate
+- JS rendering built-in
+- Pay-per-request (~$0.001-0.01/request)
+
+### Cấu hình crawling trong `.env`:
 - `WEB_FETCH_TIMEOUT`: Timeout (giây, mặc định 15)
 - `WEB_FETCH_USER_AGENT`: User agent string
 - `WEB_FETCH_MAX_CHARS`: Giới hạn ký tự (mặc định 50000)
 - `WEB_FETCH_USE_PLAYWRIGHT`: `auto` (mặc định) | `always` | `never`
-- `WEB_FETCH_PROXY`: 1 proxy duy nhất, ví dụ `http://user:pass@host:port`
-- `WEB_FETCH_PROXY_LIST`: danh sách proxy cách nhau dấu phẩy để xoay vòng
-- `WEB_FETCH_PROXY_ROTATE`: `true|false` (mặc định `true`, random proxy từ list)
-
-Ví dụ cấu hình proxy:
-
-```dotenv
-WEB_FETCH_PROXY=http://username:password@proxy1.example.com:8080
-# hoặc dùng list để rotate
-WEB_FETCH_PROXY_LIST=http://proxy1.example.com:8080,http://proxy2.example.com:8080
-WEB_FETCH_PROXY_ROTATE=true
-```
+- `WEB_FETCH_PROXY`: 1 proxy duy nhất
+- `WEB_FETCH_PROXY_LIST`: danh sách proxy (xoay vòng)
+- `WEB_FETCH_PROXY_ROTATE`: `true|false` (mặc định `true`)
+- `WEB_FETCH_USE_ZYTE`: `true|false` (mặc định `true` nếu có key)
 
 ## Gợi ý mở rộng
 
