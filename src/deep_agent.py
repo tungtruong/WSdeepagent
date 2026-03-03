@@ -131,6 +131,7 @@ class DeepResearchAgent:
                 return proxy_config
             
             # Ưu tiên dùng Zyte API nếu có key
+            zyte_error = None
             if use_zyte and ZYTE_AVAILABLE:
                 try:
                     html = zyte_api.get_html(
@@ -154,8 +155,8 @@ class DeepResearchAgent:
                     return f"URL: {url}\nMethod: zyte-api\nProxy: managed by Zyte\n\n{text}"
                     
                 except Exception as e:
-                    # Fallback nếu Zyte fail
-                    pass
+                    # Lưu lỗi Zyte để report sau
+                    zyte_error = str(e)[:200]
             
             # Thử requests trước cho trang tĩnh (nhanh hơn)
             if use_playwright != "always":
@@ -195,6 +196,15 @@ class DeepResearchAgent:
                     
                 except requests.RequestException:
                     pass  # Fallback to playwright
+            
+            # Nếu WEB_FETCH_USE_PLAYWRIGHT=never, không được dùng Playwright
+            if use_playwright == "never":
+                errors = []
+                if zyte_error:
+                    errors.append(f"Zyte failed: {zyte_error}")
+                errors.append("Requests failed or insufficient content")
+                errors.append("Playwright disabled (WEB_FETCH_USE_PLAYWRIGHT=never)")
+                return f"Error: Cannot fetch {url}\n" + "\n".join(errors)
             
             # Fallback: dùng Playwright cho JS-rendered content
             if not PLAYWRIGHT_AVAILABLE:
