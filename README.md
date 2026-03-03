@@ -148,12 +148,20 @@ playwright install chromium
 python src/main.py --query "Tóm tắt nội dung từ https://example.com/article"
 ```
 
-**Cơ chế crawling thông minh (ưu tiên):**
-1. Nếu có `ZYTE_API_KEY` → dùng Zyte API (JS support + proxy auto)
-2. Thử `requests` + proxy (nhanh) cho trang HTML tĩnh
-3. Fallback sang `playwright` nếu phát hiện nội dung ít (trang JS-heavy)
+**Cơ chế crawling thông minh với tuân thủ robots.txt:**
+1. **Kiểm tra robots.txt** (nếu `WEB_FETCH_RESPECT_ROBOTS_TXT=true`): Verify quyền crawl URL
+2. **Zyte API** (nếu có `ZYTE_API_KEY`): Managed browser + proxy auto-rotate
+3. **requests + BeautifulSoup** (nếu `WEB_FETCH_USE_PLAYWRIGHT != always`): Nhanh cho trang HTML tĩnh
+4. **Playwright fallback** (nếu `WEB_FETCH_USE_PLAYWRIGHT != never`): JS-heavy pages
 
 **Hỗ trợ:** SPA, React, Vue, Angular apps
+
+📚 **[Production Crawling Guide](docs/ZYTE_CRAWLING_GUIDE.md)** - Hướng dẫn đầy đủ về:
+- Pre-crawl compliance (robots.txt, ToS, sitemap với SHA256 hashing)
+- Multi-phase workflow (discovery → sample → full extraction)
+- Rate limiting ≥1000ms, retry logic, error handling
+- Artifact collection (JSONL logs, raw HTML samples, manifest)
+- Success metrics và validation thresholds
 
 ### Cấu hình Zyte API (khuyến cáo)
 
