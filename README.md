@@ -155,6 +155,29 @@ python src/main.py --query "Tóm tắt nội dung từ https://example.com/artic
 4. **Playwright fallback** (nếu `WEB_FETCH_USE_PLAYWRIGHT != never`): JS-heavy pages
 
 **Hỗ trợ:** SPA, React, Vue, Angular apps
+### 🤖 Autonomous Crawling Policy
+
+**Bot tự động tuân thủ quy tắc crawling đạo đức** - không cần config riêng cho từng domain:
+
+✅ **Tự động thực hiện:**
+- Check robots.txt trước mỗi URL (có thể tắt bằng `WEB_FETCH_RESPECT_ROBOTS_TXT=false`)
+- Rate limiting 1 giây giữa các request tới cùng domain
+- Giới hạn ≤10 URLs/domain (hỏi user nếu cần nhiều hơn)
+- Báo lỗi rõ ràng khi bị robots.txt chặn (không tự động bypass)
+- Log tiến trình khi crawl nhiều URL
+
+✅ **Ví dụ bot tự áp dụng policy:**
+```python
+# User hỏi: "So sánh giá 5 sản phẩm xe đạp trên shopxenhat.com"
+# Bot tự động:
+# 1. Tìm 5 product URLs
+# 2. Check robots.txt của shopxenhat.com
+# 3. Crawl từng URL với sleep(1.0) giữa mỗi lần
+# 4. Report kết quả + số URL thành công/thất bại
+```
+
+📖 **Chi tiết policy:** [docs/CRAWLING_POLICY.md](docs/CRAWLING_POLICY.md)
+
 
 📚 **[Production Crawling Guide](docs/ZYTE_CRAWLING_GUIDE.md)** - Hướng dẫn đầy đủ về:
 - Pre-crawl compliance (robots.txt, ToS, sitemap với SHA256 hashing)

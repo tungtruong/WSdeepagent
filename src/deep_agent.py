@@ -383,7 +383,19 @@ class DeepResearchAgent:
             "Đầu ra mong muốn:\n"
             "1) Kết luận ngắn\n"
             "2) 3-5 bằng chứng chính\n"
-            "3) Nguồn tham khảo"
+            "3) Nguồn tham khảo\n\n"
+            "⚠️ WEB CRAWLING POLICY (nếu dùng fetch_url):\n"
+            "• fetch_url tự động check robots.txt - đừng lo việc này\n"
+            "• Nếu cần crawl 3+ URLs từ CÙNG domain:\n"
+            "  - THÊM time.sleep(1.0) giữa mỗi lần gọi fetch_url\n"
+            "  - Giới hạn ≤10 URLs (nếu >10, hỏi user trước)\n"
+            "  - Log progress: print(f'Fetching {{i+1}}/{{total}}: {{url}}')\n"
+            "• Nếu fetch_url trả về 'Error: robots.txt disallow' → tôn trọng, đừng retry\n"
+            "• Ví dụ đúng:\n"
+            "  for i, url in enumerate(urls[:10]):\n"
+            "      result = fetch_url(url)\n"
+            "      if i < len(urls)-1: time.sleep(1.0)\n"
+            "• Chi tiết: docs/CRAWLING_POLICY.md"
         )
 
         result = self.react_agent.invoke(
@@ -405,7 +417,9 @@ class DeepResearchAgent:
 
         system = (
             "Bạn là principal analyst. Hãy tổng hợp câu trả lời chất lượng cao, cấu trúc rõ ràng, "
-            "nêu hạn chế dữ liệu và phần cần kiểm chứng thêm nếu có."
+            "nêu hạn chế dữ liệu và phần cần kiểm chứng thêm nếu có.\n\n"
+            "Nếu có sử dụng web crawling: Nhắc rằng agent tuân thủ robots.txt và rate limiting (1s/request) "
+            "để bảo vệ website. Số URL bị chặn hoặc bỏ qua (nếu có) nên được nêu rõ."
         )
         user = (
             f"Câu hỏi gốc: {question}\n\n"
