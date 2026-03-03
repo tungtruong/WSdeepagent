@@ -139,7 +139,6 @@ class DeepResearchAgent:
                         },
                         json={
                             "url": url,
-                            "httpResponseBody": True,
                             "browserHtml": True,
                         },
                         timeout=timeout,
@@ -147,7 +146,10 @@ class DeepResearchAgent:
                     zyte_response.raise_for_status()
                     
                     result = zyte_response.json()
-                    html = result.get("browserHtml") or result.get("httpResponseBody", "")
+                    html = result.get("browserHtml", "")
+                    
+                    if not html:
+                        raise ValueError("Zyte returned empty browserHtml")
                     
                     soup = BeautifulSoup(html, "lxml")
                     for script in soup(["script", "style", "nav", "footer"]):
@@ -165,7 +167,7 @@ class DeepResearchAgent:
                     
                 except Exception as e:
                     # Lưu lỗi Zyte để report sau
-                    zyte_error = str(e)[:200]
+                    zyte_error = f"{type(e).__name__}: {str(e)[:180]}"
             
             # Thử requests trước cho trang tĩnh (nhanh hơn)
             if use_playwright != "always":
