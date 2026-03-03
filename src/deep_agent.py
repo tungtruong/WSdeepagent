@@ -3,8 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 import random
+import time
 from typing import Callable, List, Literal
 from urllib.parse import unquote, urlparse
+from urllib.robotparser import RobotFileParser
 import requests
 from bs4 import BeautifulSoup
 
@@ -67,7 +69,36 @@ class DeepResearchAgent:
 
     @staticmethod
     def _create_web_fetch_tool():
-        """Tạo tool để fetch và parse nội dung từ URL với Zyte/Playwright fallback."""
+        """Tạo tool để fetch và parse nội dung từ URL với robots.txt respect."""
+        
+        def check_robots_txt(url: str, user_agent: str, respect_robots: bool) -> tuple[bool, str]:
+            """Check robots.txt và kiểm tra xem URL có được phép crawl không.
+            
+            Returns: (allowed, reason)
+            """
+            if not respect_robots:
+                return True, ""
+            
+            try:
+                parsed = urlparse(url)
+                robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
+                
+                rp = RobotFileParser()
+                rp.set_url(robots_url)
+                rp.read()
+                
+                # Check với user-agent
+                allowed = rp.can_fetch(user_agent, url)
+                
+                if not allowed:
+                    return False, f"Disallowed by robots.txt for User-Agent: {user_agent}"
+                
+                return True, ""
+                
+            except Exception as e:
+                # Nếu không thể fetch robots.txt, allow (tạm thời assume it's OK)
+                return True, f"(robots.txt not found or error: {str(e)[:50]})"
+        
         @tool
         def fetch_url(url: str) -> str:
             """Fetch và trích xuất text content từ một URL (hỗ trợ JavaScript rendering).
@@ -86,6 +117,12 @@ class DeepResearchAgent:
             use_playwright = os.getenv("WEB_FETCH_USE_PLAYWRIGHT", "auto").lower()
             zyte_api_key = (os.getenv("ZYTE_API_KEY", "") or "").strip()
             use_zyte = os.getenv("WEB_FETCH_USE_ZYTE", "true").lower() == "true" and zyte_api_key
+            respect_robots = os.getenv("WEB_FETCH_RESPECT_ROBOTS_TXT", "true").lower() == "true"
+
+            # Kiểm tra robots.txt trước
+            robots_allowed, robots_reason = check_robots_txt(url, user_agent, respect_robots)
+            if not robots_allowed:
+                return f"Error: {robots_reason}"
 
             proxy_single = (os.getenv("WEB_FETCH_PROXY", "") or "").strip()
             proxy_list_raw = (os.getenv("WEB_FETCH_PROXY_LIST", "") or "").strip()

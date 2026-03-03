@@ -177,6 +177,7 @@ Lợi ích:
 - `WEB_FETCH_PROXY_LIST`: danh sách proxy (xoay vòng)
 - `WEB_FETCH_PROXY_ROTATE`: `true|false` (mặc định `true`)
 - `WEB_FETCH_USE_ZYTE`: `true|false` (mặc định `true` nếu có key)
+- `WEB_FETCH_RESPECT_ROBOTS_TXT`: `true|false` (mặc định `true` - kiểm tra robots.txt)
 
 ## Gợi ý mở rộng
 
