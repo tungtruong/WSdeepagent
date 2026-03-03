@@ -22,12 +22,6 @@ except ImportError:
     PLAYWRIGHT_AVAILABLE = False
     PlaywrightTimeout = Exception
 
-try:
-    import zyte_api
-    ZYTE_AVAILABLE = True
-except ImportError:
-    ZYTE_AVAILABLE = False
-
 
 class ResearchPlan(BaseModel):
     objective: str = Field(description="Mục tiêu nghiên cứu")
@@ -132,13 +126,28 @@ class DeepResearchAgent:
             
             # Ưu tiên dùng Zyte API nếu có key
             zyte_error = None
-            if use_zyte and ZYTE_AVAILABLE:
+            if use_zyte and zyte_api_key:
                 try:
-                    html = zyte_api.get_html(
-                        url,
-                        api_key=zyte_api_key,
+                    import base64
+                    auth_string = base64.b64encode(f"{zyte_api_key}:".encode()).decode()
+                    
+                    zyte_response = requests.post(
+                        "https://api.zyte.com/v1/extract",
+                        headers={
+                            "Authorization": f"Basic {auth_string}",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "url": url,
+                            "httpResponseBody": True,
+                            "browserHtml": True,
+                        },
                         timeout=timeout,
                     )
+                    zyte_response.raise_for_status()
+                    
+                    result = zyte_response.json()
+                    html = result.get("browserHtml") or result.get("httpResponseBody", "")
                     
                     soup = BeautifulSoup(html, "lxml")
                     for script in soup(["script", "style", "nav", "footer"]):
