@@ -57,6 +57,7 @@ python src/telegram_bot.py
 Lệnh đổi model trực tiếp trên Telegram:
 - `/provider openai|local`
 - `/model <ten-model>` (hoặc `/thinking <ten-model>`)
+- `/diag` Kiểm tra trạng thái Zyte, network, và test crawl
 
 Ví dụ dùng model local trong LAN (OpenAI-compatible API):
 - `DEFAULT_LLM_PROVIDER=local`

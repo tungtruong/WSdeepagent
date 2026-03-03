@@ -15,6 +15,8 @@ from telegram.constants import ChatAction
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 from deep_agent import DeepResearchAgent
+import socket
+import time
 
 
 TELEGRAM_MESSAGE_LIMIT = 4000
@@ -546,6 +548,75 @@ async def handle_query(
             await update.message.reply_text(chunk)
 
 
+async def diag_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Kiểm tra trạng thái hệ thống: Zyte, network, crawl test."""
+    if not await ensure_authorized(update, context):
+        return
+
+    await update.message.reply_text("🔍 Đang kiểm tra trạng thái hệ thống...")
+
+    results = []
+    
+    # 1. Check Zyte API
+    zyte_key = (os.getenv("ZYTE_API_KEY", "") or "").strip()
+    use_zyte = os.getenv("WEB_FETCH_USE_ZYTE", "true").lower() == "true"
+    if zyte_key and use_zyte:
+        results.append("✅ Zyte API: ACTIVE (key set)")
+    else:
+        results.append("⚠️  Zyte API: INACTIVE (no key hoặc disabled)")
+    
+    # 2. Check DNS + Network
+    try:
+        socket.gethostbyname("google.com")
+        results.append("✅ Network: OK (DNS works)")
+    except socket.gaierror:
+        results.append("❌ Network: FAIL (no DNS resolution)")
+    
+    # 3. Test crawl https://example.com
+    try:
+        start_time = time.time()
+        from deep_agent import DeepResearchAgent
+        
+        # Mẻ minimal agent để fetch
+        test_agent = DeepResearchAgent(
+            model_name=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+            base_url=(os.getenv("LOCAL_LLM_BASE_URL", "") or None),
+            api_key=(os.getenv("OPENAI_API_KEY", "") or None),
+        )
+        
+        # Lấy tool fetch_url từ agent
+        fetch_tool = None
+        for tool in test_agent.tools:
+            if hasattr(tool, "name") and tool.name == "fetch_url":
+                fetch_tool = tool
+                break
+        
+        if fetch_tool:
+            result_text = fetch_tool.invoke({"url": "https://example.com"})
+            elapsed = time.time() - start_time
+            
+            if "Error:" in result_text:
+                results.append(f"❌ Crawl test: FAIL - {result_text[:100]}")
+            else:
+                # Extract method từ response
+                method = "requests"
+                if "Method: zyte-api" in result_text:
+                    method = "zyte-api"
+                elif "Method: playwright" in result_text:
+                    method = "playwright"
+                
+                results.append(f"✅ Crawl test: OK ({method}, {elapsed:.1f}s)")
+        else:
+            results.append("⚠️  Crawl test: fetch_url tool not found")
+            
+    except Exception as e:
+        results.append(f"❌ Crawl test: ERROR - {str(e)[:80]}")
+    
+    # Format output
+    output = "📊 **Diagnostics Report**\n\n" + "\n".join(results)
+    await update.message.reply_text(output)
+
+
 async def notify_startup(application: Application) -> None:
     notify_chat_ids: List[int] = application.bot_data["notify_chat_ids"]
     model_name: str = application.bot_data["model_name"]
@@ -629,6 +700,7 @@ def main() -> None:
     app.add_handler(CommandHandler("model", model_command))
     app.add_handler(CommandHandler("thinking", model_command))
     app.add_handler(CommandHandler("reset", reset_command))
+    app.add_handler(CommandHandler("diag", diag_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_message))
 
     app.run_polling(allowed_updates=Update.ALL_TYPES)
