@@ -573,44 +573,48 @@ async def diag_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         results.append("❌ Network: FAIL (no DNS resolution)")
     
     # 3. Test crawl https://example.com
-    try:
+    def run_diag_crawl_sync() -> tuple[bool, str, str, float]:
         start_time = time.time()
         from deep_agent import DeepResearchAgent
-        
-        # Mẻ minimal agent để fetch
+
         test_agent = DeepResearchAgent(
             model_name=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
             base_url=(os.getenv("LOCAL_LLM_BASE_URL", "") or None),
             api_key=(os.getenv("OPENAI_API_KEY", "") or None),
         )
-        
-        # Lấy tool fetch_url từ agent
+
         fetch_tool = None
         for tool in test_agent.tools:
             if hasattr(tool, "name") and tool.name == "fetch_url":
                 fetch_tool = tool
                 break
-        
-        if fetch_tool:
-            result_text = fetch_tool.invoke({"url": "https://example.com"})
+
+        if fetch_tool is None:
             elapsed = time.time() - start_time
-            
-            if "Error:" in result_text:
-                results.append(f"❌ Crawl test: FAIL - {result_text[:100]}")
-            else:
-                # Extract method từ response
-                method = "requests"
-                if "Method: zyte-api" in result_text:
-                    method = "zyte-api"
-                elif "Method: playwright" in result_text:
-                    method = "playwright"
-                
-                results.append(f"✅ Crawl test: OK ({method}, {elapsed:.1f}s)")
+            return False, "", "fetch_url tool not found", elapsed
+
+        result_text = fetch_tool.invoke({"url": "https://example.com"})
+        elapsed = time.time() - start_time
+
+        if "Error:" in result_text:
+            return False, "", result_text[:160], elapsed
+
+        method = "requests"
+        if "Method: zyte-api" in result_text:
+            method = "zyte-api"
+        elif "Method: playwright" in result_text:
+            method = "playwright"
+
+        return True, method, "", elapsed
+
+    try:
+        ok, method, err_message, elapsed = await asyncio.to_thread(run_diag_crawl_sync)
+        if ok:
+            results.append(f"✅ Crawl test: OK ({method}, {elapsed:.1f}s)")
         else:
-            results.append("⚠️  Crawl test: fetch_url tool not found")
-            
+            results.append(f"❌ Crawl test: FAIL - {err_message}")
     except Exception as e:
-        results.append(f"❌ Crawl test: ERROR - {str(e)[:80]}")
+        results.append(f"❌ Crawl test: ERROR - {str(e)[:160]}")
     
     # Format output
     output = "📊 **Diagnostics Report**\n\n" + "\n".join(results)
